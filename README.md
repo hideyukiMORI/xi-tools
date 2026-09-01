@@ -64,13 +64,36 @@ profile/frontend-ci.yml  jobs.e2e.steps[5]            "Upload Playwright report"
 ## 開発
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+make check
 ```
 
-版は `rust-toolchain.toml` が決めます。CI にも版を書きません
+**これが唯一の入口です。** CI も `make check` を呼ぶだけで、CI 側にしか無い検査を作りません
+（「手元では通ったのに CI で落ちた」を構造的に起こさないため）。
+
+版は `rust-toolchain.toml` が決めます。`Makefile` にも CI にも版を書きません
 （2箇所に書くと、片方だけ上げられて「手元では通る」が生まれるため）。
+
+### 規約
+
+コードの書き方は **[`docs/coding-rules.md`](./docs/coding-rules.md) が正**です。
+すべての規則に ID があり、**機械強制の状態（active / planned / 不能 / 不採用）を明示**しています。
+
+思想は「**一つの事を表現する手段を一つに固定する**」ことで、実体は3層です。
+
+| 層 | 守るもの |
+| --- | --- |
+| コンパイラ / cargo | 型・可視性・網羅性・クレート境界（**不正な状態を書けなくする**） |
+| lint | 書けてしまうが書くべきでないこと |
+| 規約検査（`xtask`） | xi-tools 固有の規約（**未実装**） |
+
+🔴 **抑制は二段構えです。** `forbid` した規則は `#[allow]` も `#[expect]` も
+コンパイルエラー（E0453）になり、**例外を申請する窓口が存在しません**。
+`deny` の規則は `#[expect(lint, reason = "...")]` でのみ抑制でき、
+不要になった抑制は `unfulfilled_lint_expectations` が落とします。
+
+判断の根拠は [ADR 0001](./docs/adr/0001-strictness-is-mechanically-enforced.md)、
+ゲートが実際に発火することの実測は
+[ゲート発火の証明](./docs/quality/gate-proofs.md)。
 
 ## ライセンス
 
