@@ -1,0 +1,50 @@
+# scopegrep の判定用 fixture（手書きの架空データ）。
+#
+# 🔴 これは D-2（パーサ選定）の合否を決めるファイルである。
+#    候補パーサは、下の3つの `cancelled()` を **別物として区別できなければならない**。
+#
+#      1. コメント内の散文        → ヒットさせてはならない（偽陽性）
+#      2. 依存監査ステップの if   → 欠陥として報告すべきもの
+#      3. レポート上げの if       → 教科書どおりの正しい用法
+#
+#    行ベースの検索はこの3つを必ず同じ重みで返す。それが scopegrep の存在理由である。
+
+name: Example CI
+
+on:
+  pull_request:
+
+jobs:
+  frontend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # 1) 散文。ここに書かれた cancelled() は設定値ではない。
+      #    !cancelled() を使う理由を説明しているだけで、実行条件ではない。
+      - name: Audit (fail on high/critical)
+        # 2) 欠陥。前段が落ちた作業ツリーで走り、2つ目の赤を出す。
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=high
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Playwright
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        # 3) 正しい用法。E2E が落ちてもレポートを上げる。
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/

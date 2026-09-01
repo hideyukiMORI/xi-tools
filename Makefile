@@ -8,12 +8,12 @@
 #    2箇所に書くと、片方だけ上げられて「手元では通る」が生まれる。
 CARGO ?= cargo
 
-.PHONY: all check fmt fmt-check lint test build doc-check clean prove
+.PHONY: all check fmt fmt-check lint test conformance build doc-check clean prove
 
 all: check
 
 ## check — 提出前に必ず通すもの。CI もこれを呼ぶ
-check: fmt-check lint test doc-check build
+check: fmt-check lint test conformance doc-check build
 
 ## fmt — rustfmt に設定ファイルを置かない。整形の流儀を議論する余地をそもそも作らない
 fmt:
@@ -31,6 +31,11 @@ lint:
 ## test — 🔴 --locked は同上
 test:
 	$(CARGO) test --workspace --locked
+
+## conformance — このリポジトリ固有の規約検査（CNF-0xx / xtask）
+## lint が見ないものだけを見る。規則の正本は docs/coding-rules.md。
+conformance:
+	$(CARGO) run --quiet -p xtask --locked
 
 ## doc-check — rustdoc の警告（壊れた intra-doc link 等）を失敗にする
 doc-check:

@@ -39,10 +39,11 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 | | 状態 |
 | --- | --- |
 | workspace の足場・CI | ✅ 完了（2026-09-01・`c1bbe4a`） |
+| コーディング規約と機械強制 | ✅ 完了（2026-09-02・`docs/coding-rules.md` / `xtask`） |
 | `scopegrep` 設計 | 🔲 未決4件（D-1〜D-4） |
 | `scopegrep` 実装 | 🔲 未着手（`main.rs` は exit 2 で明示的に落ちる） |
 
-**動くもの:** `cargo fmt` / `clippy` / `test` / `build` の4点と CI
+**動くもの:** `make check`（fmt / clippy / test / conformance / doc / build）と CI、`xtask`（規約検査）
 **動かないもの:** `scopegrep` 本体（未実装）
 
 ### 次にやること
@@ -61,11 +62,14 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 ## 開発コマンド
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace --release
+make check      # 🔴 これが唯一の入口。CI も make check を呼ぶだけ
 ```
+
+個別に見たいときだけ `make fmt-check` / `lint` / `test` / `conformance` / `doc-check` / `build`。
+`make fmt` で整形する。
+
+🔴 **検査を足したくなったら、まず `Makefile` に足す。** CI 側にだけ検査を書かない
+（「手元では通ったのに CI で落ちた」を構造的に起こさないため・QLT-003）。
 
 Rust は `rustup` 導入（`~/.cargo/bin`）。`/etc/profile.d/rust.sh` と各 `.bashrc` で PATH に入っている。
 
@@ -100,10 +104,31 @@ Rust は `rustup` 導入（`~/.cargo/bin`）。`/etc/profile.d/rust.sh` と各 `
 版の正本は `rust-toolchain.toml` だけ。**CI に `toolchain:` を書き足さない。**
 2箇所に書くと片方だけ上げられて「手元では通る」が生まれる。
 
-### 4. `unsafe_code = forbid` と `clippy -D warnings` を緩めない
+### 4. 🔴 ゲートを緩めない。緩めるなら ADR を書く
 
-`Cargo.toml` の `[workspace.lints]` にある。**通らないから緩める**をやると、
-このリポが示そうとしている実績そのものが消える。通し方が分からないときは緩めずに聞く。
+規約の正本は **[`docs/coding-rules.md`](docs/coding-rules.md)**。実体は `Cargo.toml` の
+`[workspace.lints]` / `clippy.toml` / `Makefile` / `xtask` にある。
+
+**通らないから緩める**をやると、このリポが示そうとしている実績そのものが消える。
+通し方が分からないときは緩めずに聞く。
+
+抑制は**二段構え**である。
+
+| 段 | 水準 | 抑制 |
+| --- | --- | --- |
+| 1段目 | `forbid` | **不可能**。`#[allow]` も `#[expect]` も `E0453` で落ちる |
+| 2段目 | `deny` | `#[expect(<lint>, reason = "<規則 ID>: <理由>")]` **のみ** |
+
+⚠️ `reason` の規則 ID は **`docs/coding-rules.md` に実在するものでなければ `xtask` が落とす**。
+規約から規則を消すと、それを引いていた抑制が CI で落ちる（＝規約とコードが片側だけ動けない）。
+
+⚠️ **`planned` を `active` と書き換えない。** 未実装の強制を実装済みに見せるのは、
+規約全体の信頼を壊す唯一の行為である。実装してから書き換える。
+
+⚠️ **設定に項目が在ることは、検査が効いていることの証明ではない。**
+実際 `cognitive_complexity` は「閾値だけ設定され lint は無効」という死んだ状態だった
+（2026-09-02 実測）。ゲートを足したら
+[意図的な違反で発火することを確認](docs/quality/gate-proofs.md)してから active と書く。
 
 ### 5. 🔴 public リポに `_work` の中身を持ち込まない
 
@@ -128,8 +153,13 @@ Rust は `rustup` 導入（`~/.cargo/bin`）。`/etc/profile.d/rust.sh` と各 `
 ## 規約
 
 - **ライセンス**: MIT（フリート標準）
-- **設計判断は `docs/design/<tool>.md` に書く。** ADR 形式は取らない
+- **ツールの設計判断は `docs/design/<tool>.md` に書く。** ここは ADR 形式を取らない
   （リポが小さいので、1ツール1ファイルで足りる）。**却下した案とその理由を必ず残す**
+- **リポジトリのゲートに関する判断は `docs/adr/` に書く**（2026-09-02 追加）。
+  🔑 上の「ADR 形式は取らない」は**ツールの設計判断**についての規約であり、
+  ゲートの判断はそれと別の対象である。QLT-005 が
+  「ゲートを弱める変更は ADR を要する」と定める以上、その置き場が要る。
+  **ツール設計を ADR で書き始めないこと**——分けている意味が消える
 - **コミットメッセージは日本語。** 件名に「何を」ではなく**判断**を置く
   （例: `版は rust-toolchain.toml が正で、CI には書かない`）
 - **crate は単独 publish できる形を保つ。** workspace メンバーは

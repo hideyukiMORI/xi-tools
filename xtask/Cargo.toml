@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+description = "xi-tools 固有の規約検査（CNF-0xx）。docs/coding-rules.md を機械で見る"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# 🔴 道具であって成果物ではない。crates.io に出さない（ARC-001）。
+publish = false
+
+[lints]
+workspace = true
+
+# 🔴 依存ゼロを保つ（ARC-004）。CNF-0xx は全て構文で判定できる。
+#    型情報が要る規則が出てきたら ADR を立てて再検討する。
+[dependencies]

@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | コンパイラ / cargo | 型・可視性・網羅性・クレート境界 | **不正な状態を「書けなく」する** |
 | lint | `Cargo.toml` の `[workspace.lints]` ＋ `clippy.toml` | 書けてしまうが書くべきでないこと |
-| 規約検査 | `xtask`（未実装） | **xi-tools として守るべきこと** |
+| 規約検査 | `xtask`（依存ゼロ・`make check` に含まれる） | **xi-tools として守るべきこと** |
 
 ### 🔴 抑制は二段構えである（本規約の中核）
 
@@ -126,14 +126,17 @@ pub struct LineNumber(u32);
 
 したがって次を規範とする。
 
-- 不変条件を持つ型に `Default` を実装・derive しない
+- **`Default` を実装・derive しない**（型を問わず）。
+  🔑 「不変条件を持つ型に限る」と書くと、機械が判定できない。
+  **判定できない条件を規約に書くと、その規則は永久に planned のままになる。**
+  全面禁止にして、必要になったら ADR で例外を切る
 - `..Default::default()` による構造体の穴埋めを書かない（`E0063` を無効化する書き方である）
 - 不変条件を持つ型は**自分のモジュールに単独で置く**。
   🔑 Rust の可視性は「子モジュールは祖先の非公開項目に到達できる」。
   同じモジュールに雑多な型を同居させると、隣人がファクトリを迂回できる
 
-- 機械強制: **active**（未初期化 `E0381`・部分構築 `E0063`）
-- 機械強制: **planned**（`Default` の禁止＝`CNF-001`、単独モジュール＝`CNF-005`）
+- 機械強制: **active**（未初期化 `E0381`・部分構築 `E0063`・`Default` の禁止＝`CNF-001`）
+- 機械強制: **planned**（単独モジュール＝`CNF-005`）
 
 ### RS-004 — 不在は `Option` だけが表す
 
@@ -174,7 +177,8 @@ let node = nodes[i];                                        // ❌ indexing_slic
 `dyn Any`・`BTreeMap<String, String>` を型の代用にしない。意味のある値を
 `(A, B)` のタプルで持ち回らない。名前付きの型を作る。
 
-- 機械強制: **planned**（`CNF-002`）
+- 機械強制: **active**（`dyn Any` の禁止＝`CNF-002`）
+- 機械強制: **planned**（文字列キーのバッグ・意味を持つタプルの検出）
 
 ### RS-007 — 数値変換に `as` を使わない
 
@@ -210,8 +214,8 @@ let n = len as u32;                  // ❌ as_conversions（forbid）
 - `static mut` は `unsafe` を要するので、`unsafe_code = "forbid"` により**書けない**
 - `OnceLock` / `LazyLock` による遅延グローバルは書けてしまう。使わない
 
-- 機械強制: **active**（`static mut`。`unsafe_code` の forbid による）
-- 機械強制: **planned**（`OnceLock` / `LazyLock` の禁止＝`CNF-002` の拡張）
+- 機械強制: **active**（`static mut` は `unsafe_code` の forbid による。
+  `OnceLock` / `LazyLock` / `lazy_static` の禁止＝`CNF-002`）
 
 ### RS-010 — 言語マジックを禁じる
 
@@ -224,8 +228,9 @@ let n = len as u32;                  // ❌ as_conversions（forbid）
 🔑 Rust には reflection が無い。Kotlin / PHP の `KOT-010` が禁じていたものの
 大半が**そもそも言語に存在しない**。
 
-- 機械強制: **active**（`unsafe_code` を **forbid**。reflection は言語に無い）
-- 機械強制: **planned**（proc-macro・`build.rs` の禁止＝`CNF-002` の拡張）
+- 機械強制: **active**（`unsafe_code` を **forbid**。reflection は言語に無い。
+  proc-macro の禁止＝`CNF-002`）
+- 機械強制: **planned**（`build.rs` の禁止・`macro_rules!` の判断はレビュー事項）
 
 ### RS-011 — 複雑度に上限を置く
 
@@ -256,8 +261,8 @@ let n = len as u32;                  // ❌ as_conversions（forbid）
 **互いに正反対の規則**である（実測: 一方は `mod.rs` を禁じ、他方は要求する）。
 **同時に有効化しないこと。** 本リポジトリは前者を採る。
 
-- 機械強制: **active**（`mod.rs` の禁止）
-- 機械強制: **planned**（1ファイル1主要宣言＝`CNF-003`）
+- 機械強制: **active**（`mod.rs` の禁止＝`clippy::mod_module_files`、
+  1ファイル1主要宣言＝`CNF-003`）
 
 ### RS-013 — 名前が役割を語る
 
@@ -267,8 +272,8 @@ let n = len as u32;                  // ❌ as_conversions（forbid）
 `Processor` や `Data` のように**文脈次第で妥当な語は機械では拒否しない**。
 機械が拒否してよいのは「常に禁止」だけで、判断が要る語はレビューの仕事である。
 
-- 機械強制: **active**（束縛名について `clippy.toml` の `disallowed-names`）
-- 機械強制: **planned**（型名・モジュール名の語尾＝`CNF-004`）
+- 機械強制: **active**（束縛名は `clippy.toml` の `disallowed-names`、
+  型名の語尾とモジュール名は `CNF-004`）
 
 ---
 
@@ -334,6 +339,12 @@ Rust では既定型への落下として現れるので、それを検出でき
 `xi-tools` はツールを並べる workspace である。ツールは1つのクレートに閉じる。
 **ツール間でコードを共有したくなったら ADR を1本立てる**（共有は結合であり、
 「道具を独立に捨てられる」という本リポジトリの性質を失う）。
+
+**道具クレートは成果物ではない。** `xtask`（規約検査）は `publish = false` を持ち、
+このリポジトリを検査するためだけに存在する。ツールの本数には数えない。
+
+🔑 各ツールは `cargo publish -p <name>` で単独 publish できる形を保つ
+（`scopegrep` を将来独立させる余地を潰さないため）。
 
 - 機械強制: **planned**（現在ツールは `scopegrep` 1つで、共有クレートが存在しない）
 
@@ -425,8 +436,8 @@ CI 側にしか無い検査を作らない。検査を足したくなったら�
 - `TODO` / `FIXME` は Issue 番号を伴うか、消す
 
 - 機械強制: **active**（forbid 層 ＋ `allow_attributes` ＋ `allow_attributes_without_reason`
-  ＋ `unfulfilled_lint_expectations`）
-- 機械強制: **planned**（`reason` に規則 ID が含まれること＝`CNF-006`）
+  ＋ `unfulfilled_lint_expectations` ＋ **`reason` が実在する規則 ID を引くこと**＝`CNF-006`）
+- 機械強制: **planned**（`TODO` / `FIXME` の Issue 番号）
 
 ### QLT-007 — テストと検査器の規律
 
@@ -462,21 +473,38 @@ CI 側にしか無い検査を作らない。検査を足したくなったら�
 ## 6. 規約検査（CNF-0xx）— `xtask`
 
 lint が見ないもの、つまり**このリポジトリ固有の規約**を検査する。
-**現在は未実装である。全て planned。**
+依存ゼロで書かれており、`make check` の `conformance` ターゲットで常に走る。
 
 | ID | 内容 | 状態 |
 | --- | --- | --- |
-| `CNF-001` | 不変条件を持つ型に `Default` を実装しない／`..Default::default()` を書かない（RS-003） | planned |
-| `CNF-002` | `dyn Any`・文字列キーの汎用バッグ・`OnceLock`/`LazyLock`・`build.rs`・proc-macro を禁じる（RS-006 / RS-009 / RS-010） | planned |
-| `CNF-003` | 1ファイル1主要宣言（RS-012） | planned |
-| `CNF-004` | 役割を語らない型名の語尾・モジュール名を禁じる（RS-013） | planned |
+| `CNF-001` | `Default` の実装・derive・`..Default::default()` を禁じる（RS-003） | **active** |
+| `CNF-002` | `dyn Any`・`OnceLock`/`LazyLock`/`lazy_static`・proc-macro を禁じる（RS-006 / RS-009 / RS-010） | **active** |
+| `CNF-003` | 1ファイル1主要宣言（RS-012） | **active** |
+| `CNF-004` | 役割を語らない型名の語尾・モジュール名を禁じる（RS-013） | **active** |
 | `CNF-005` | 不変条件を持つ型は自分のモジュールに単独で置く（RS-003） | planned |
-| `CNF-006` | `#[expect]` の `reason` に規則 ID が含まれる／文書中の ADR 参照が実在する（QLT-006） | planned |
+| `CNF-006` | `#[expect]` の `reason` が**実在する規則 ID**を引く／文書内リンクが実在する（QLT-006） | **active** |
 
-🔴 **依存を足さずに書くこと。** 現在の依存は 0 で、上記は全て構文で判定できる。
+### 検査対象と、その境界
+
+🔴 **`.rs` は桁 0 の `#[cfg(test)]` が現れた行より後を見ない。**
+テストは意図的な違反を書く場所であり、そこを検査すると
+**検査器のテストが検査器自身に落とされる**。テストモジュールをファイル末尾に置くのは
+Rust の慣習なので、この打ち切りで足りる。
+
+🔴 **検出語は `concat!` で分割して書く。** 検査語をそのまま書くと、
+検査器が自分自身を違反として報告する（実測: 初版で7件の自己検出が出た）。
+ファイル単位の除外で黙らせると**そのファイルだけ他の CNF も効かなくなる**ので採らない。
+
+### CNF-006 が閉じている輪
+
+`#[expect]` の `reason` は `<規則 ID>: <理由>` の形でなければならず、
+**その規則 ID が `docs/coding-rules.md` に実在すること**を検査する。
+
+⇒ 規約から規則を消すと、それを引いていた抑制が CI で落ちる。
+**規約とコードが片側だけ動く経路が無い。**
+
+🔴 **依存を足さずに書くこと**（ARC-004）。CNF-0xx は全て構文で判定できる。
 型情報が要る規則が出てきた時点で ADR を立てて再検討する。
-
----
 
 ## 7. 採用しなかった検査と、その理由
 
