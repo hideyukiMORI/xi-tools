@@ -8,10 +8,118 @@ license = "MIT"
 authors = ["Hideyuki Mori"]
 repository = "https://github.com/hideyukiMORI/xi-tools"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 🔴 規則の正本は docs/coding-rules.md。ここはその「落ちる仕組み」の側である。
+#    規則 ID を持たない lint をここに足さないこと（なぜ有効かを説明できなくなる）。
+#
+# 🔴 二段構えであることが本質（RS-022 / QLT-006）:
+#      forbid = 例外が言語仕様上とれない。#[allow] も #[expect] も E0453 で落ちる
+#      deny   = #[expect(lint, reason = "...")] でのみ抑制できる
+#    「例外を作れない規則」と「作るなら痕跡が残る規則」を混ぜないこと。
+# ─────────────────────────────────────────────────────────────────────────────
+
 [workspace.lints.rust]
+# ── forbid 層: 逃げ道を用意しない ───────────────────────────────────────────
 unsafe_code = "forbid"
+# 識別子は ASCII。文書とコメントは日本語だが、名前は機械が扱う対象である。
+non_ascii_idents = "forbid"
+
+# ── deny 層 ─────────────────────────────────────────────────────────────────
+# 🔴 これが抑制制度の要（RS-022）。発火しなかった #[expect] を失敗にする。
+#    古い抑制が黙って残り続ける経路を塞ぐ。
+unfulfilled_lint_expectations = "deny"
+missing_docs = "deny"
+missing_debug_implementations = "deny"
+# 実際には crate 外から使えない pub を禁じる。可視性を最小に保つ（RS-008）。
+unreachable_pub = "deny"
+elided_lifetimes_in_paths = "deny"
+let_underscore_drop = "deny"
+unused_must_use = "deny"
 
 [workspace.lints.clippy]
-# 🔴 CI は `-D warnings` で走る。ここを緩めるとツール間で基準が割れる。
+# ── 群 ──────────────────────────────────────────────────────────────────────
+# priority = -1 は「群より後の個別指定を勝たせる」ため。省くと順序が不定になる。
 all = { level = "deny", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+# restriction 群は「互いに矛盾する規則の在庫」であって規則集ではない。
+# 群として有効化しない。以下は在庫から1つずつ選んだもので、全てに理由がある。
+
+# ── forbid 層: パニックしうる書き方 ────────────────────────────────────────
+# テストコードは clippy.toml の allow-*-in-tests で対象外（実験15で確認済み）。
+unwrap_used = "forbid"
+expect_used = "forbid"
+panic = "forbid"
+unreachable = "forbid"
+indexing_slicing = "forbid"
+exit = "forbid"
+# `as` は黙って切り詰める。変換は TryFrom / From のどちらか一つに寄せる。
+as_conversions = "forbid"
+mem_forget = "forbid"
+
+# ── forbid 層: 抑制制度そのもの ────────────────────────────────────────────
+# #[allow] を禁じ、抑制を #[expect] だけに絞る。ここが allow だと制度が崩れる。
+allow_attributes = "forbid"
+allow_attributes_without_reason = "forbid"
+
+# ── forbid 層: 網羅性 ──────────────────────────────────────────────────────
+# `_` は「将来足された variant も黙って飲む」。KOT-002 の Rust における実装。
+wildcard_enum_match_arm = "forbid"
+wildcard_in_or_patterns = "forbid"
+
+# ── deny 層: 「一つの事に一つの手段」 ──────────────────────────────────────
+# 未完成の印は許すが、痕跡（#[expect] の reason）を必ず残させる。
+todo = "deny"
+unimplemented = "deny"
+# 出力は1箇所に集約する。書いてよい場所が #[expect] で自己申告になる。
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+# モジュールの置き方を一つに固定する（mod.rs を使わない）。
+# 🔴 self_named_module_files と同時に有効化しないこと。互いに正反対の規則である
+#    （実験16で実測: 一方は mod.rs を禁じ、他方は mod.rs を要求する）。
+mod_module_files = "deny"
+# String の作り方・再エクスポート・数値リテラルの既定型を一つに固定する。
+str_to_string = "deny"
+# 再エクスポートは「同じ物への二つ目の名前」を作る。
+pub_use = "deny"
+# 型注釈の無い数値リテラルの i32 既定落ちを禁じる。
+# 🔑 Go の「未型付き定数が暗黙変換される」穴（ADR 0010 実測）に対応する規則。
+default_numeric_fallback = "deny"
+semicolon_inside_block = "deny"
+unseparated_literal_suffix = "deny"
+empty_structs_with_brackets = "deny"
+unneeded_field_pattern = "deny"
+
+# ── deny 層: 複雑度 ────────────────────────────────────────────────────────
+# 🔴 cognitive_complexity は nursery 群にあり、どの群にも含まれない。
+#    clippy.toml に閾値を書くだけでは死んだ設定になる（実測で確認済み）。
+#    群を有効化していない lint の閾値を clippy.toml に足すときは、必ずここも見ること。
+cognitive_complexity = "deny"
+
+# ── deny 層: 型と可視性 ────────────────────────────────────────────────────
+partial_pub_fields = "deny"
+field_scoped_visibility_modifiers = "deny"
+impl_trait_in_params = "deny"
+multiple_inherent_impl = "deny"
+same_name_method = "deny"
+shadow_unrelated = "deny"
+
+# ── deny 層: 誤りを飲み込まない ───────────────────────────────────────────
+panic_in_result_fn = "deny"
+unwrap_in_result = "deny"
+map_err_ignore = "deny"
+let_underscore_untyped = "deny"
+
+# ── deny 層: 決定性 ────────────────────────────────────────────────────────
+# 反復順が実行ごとに変わるコレクションを走査しない。出力が再現しなくなる。
+iter_over_hash_type = "deny"
+# 依存のバージョンに `*` を書かない。
+wildcard_dependencies = "deny"
+verbose_file_reads = "deny"
+
+[profile.release]
+# 🔴 リリースでは整数演算のオーバーフローが黙って巻き戻る。これを落とす。
+#    clippy::arithmetic_side_effects を採らなかった代わりの措置である
+#    （理由は docs/coding-rules.md 第7節）。
+overflow-checks = true

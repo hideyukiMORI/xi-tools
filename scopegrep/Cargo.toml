@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+readme = "../README.md"
+keywords = ["grep", "yaml", "search", "structure", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [lints]
 workspace = true

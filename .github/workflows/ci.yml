@@ -12,7 +12,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     # タイムアウトは検査ではなく損切り。既定は 360分で、吊ったジョブがその間 PR をブロックする。
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +22,7 @@ jobs:
         run: |
           rustc --version
           cargo --version
+          cargo clippy --version
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -33,15 +34,31 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
 
-      # 🔴 それぞれ独立したステップにする。1本に畳むと、どれが落ちたかログから分からない。
-      - name: rustfmt
-        run: cargo fmt --all --check
+      # 🔴 ここで個別の検査を並べないこと（QLT-003）。
+      #    CI が make check を呼ぶだけであることが、ローカルと CI の同一性の実体である。
+      #    どの検査で落ちたかは make のログに出る。
+      - name: make check
+        run: make check
 
-      - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+  # ゲートを弱める変更を、レビューで見落とせない位置に出す（QLT-005）。
+  gate-change-notice:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: test
-        run: cargo test --workspace
-
-      - name: build (release)
-        run: cargo build --workspace --release
+      - name: Notify when gate files change
+        run: |
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD -- \
+            Cargo.toml clippy.toml rust-toolchain.toml Makefile \
+            .github/workflows/ci.yml docs/coding-rules.md)
+          if [ -n "$changed" ]; then
+            echo "::warning::ゲート定義が変更されている。QLT-005 により ADR が要る:"
+            echo "$changed" | sed 's/^/::warning::  /'
+          else
+            echo "ゲート定義に変更なし"
+          fi

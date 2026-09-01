@@ -1,0 +1,35 @@
+# 🔴 閾値の正本は docs/coding-rules.md の RS-011。ここはその実体である。
+#    ここを緩める変更は ADR を要する（QLT-005）。
+
+# ── テストコードの扱い ──────────────────────────────────────────────────────
+# 🔴 テストで unwrap を禁じると、テストが本質でない Result 処理で埋まる。
+#    「失敗したら即座に落ちる」ことがテストでは正しい振る舞いなので、ここは免除する。
+#    免除は clippy の設定で行い、テスト側に #[expect] を書かせない
+#    （書かせると抑制が常態化し、RS-022 の意味が消える）。
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true
+
+# ── 複雑度の上限（RS-011） ─────────────────────────────────────────────────
+cognitive-complexity-threshold = 10
+too-many-lines-threshold = 60
+too-many-arguments-threshold = 4
+excessive-nesting-threshold = 4
+type-complexity-threshold = 250
+
+# ── 名前 ────────────────────────────────────────────────────────────────────
+# 常に禁止する名前。判断が要る語（Processor / Data 等）はここに入れない。
+# 機械が拒否してよいのは「常に禁止」だけで、文脈次第の語はレビューの仕事である。
+disallowed-names = ["foo", "bar", "baz", "tmp", "data", "val", "util", "utils", "helper", "common"]
+enum-variant-name-threshold = 3
+
+# ── 禁止する型と関数（RS-006 / ARC-005） ───────────────────────────────────
+# 🔴 ここは「一つの事に一つの手段」を名指しで実装する場所である。
+#    足すときは docs/coding-rules.md の該当規則も同時に更新すること。
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "反復順が非決定。出力の再現性を守るため BTreeMap を使う（RS-016）" },
+  { path = "std::collections::HashSet", reason = "反復順が非決定。BTreeSet を使う（RS-016）" },
+]
+
