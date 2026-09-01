@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = ["scopegrep"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+authors = ["Hideyuki Mori"]
+repository = "https://github.com/hideyukiMORI/xi-tools"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# 🔴 CI は `-D warnings` で走る。ここを緩めるとツール間で基準が割れる。
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

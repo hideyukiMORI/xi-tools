@@ -1,0 +1,16 @@
+# ビルド成果物（数百MB になる。共有作業木で git status を重くしないため必ず無視する）
+/target/
+**/*.rs.bk
+
+# エディタ・OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+*Zone.Identifier
+
+# 秘密物は絶対に入れない（保険）
+.env
+.env.*
+*.pem
+*.key

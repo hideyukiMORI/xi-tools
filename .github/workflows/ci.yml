@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # タイムアウトは検査ではなく損切り。既定は 360分で、吊ったジョブがその間 PR をブロックする。
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版は rust-toolchain.toml が決める。ここでは何も指定しない
+      # （2箇所に版を書くと、片方だけ上げられて「手元では通る」が生まれる）。
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # 🔴 それぞれ独立したステップにする。1本に畳むと、どれが落ちたかログから分からない。
+      - name: rustfmt
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: test
+        run: cargo test --workspace
+
+      - name: build (release)
+        run: cargo build --workspace --release

@@ -1,0 +1,13 @@
+[package]
+name = "scopegrep"
+version = "0.0.0"
+description = "grep が返さない「そのヒットが構造のどこに属するか」を返す"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
