@@ -8,7 +8,7 @@
 #    2箇所に書くと、片方だけ上げられて「手元では通る」が生まれる。
 CARGO ?= cargo
 
-.PHONY: all check fmt fmt-check lint test conformance coverage deny build doc-check clean prove
+.PHONY: all check fmt fmt-check lint test conformance coverage deny build doc-check clean prove package check-version
 
 ## 🔴 opt-in の feature（ADR 0002）。**片方だけ緑の状態を作らない**ので、
 ##    lint と test は既定構成と FEATURES 構成の両方で走らせる。
@@ -74,6 +74,58 @@ build:
 ## 見ている限りそれは発覚しない。手順と結果は docs/quality/gate-proofs.md。
 prove:
 	@echo "docs/quality/gate-proofs.md の手順に従って手で実行する"
+
+## check-version — タグと Cargo.toml の版が一致することを確かめる（release.yml が呼ぶ）。
+##
+## 🔴 版の正本は Cargo.toml である。タグを打ち間違えると、タグ名と中身の版が違う
+##    binary が Release に並ぶ。それを人の注意ではなく、ここで落とす。
+## 🔴 判定を workflow 側に書かないこと（QLT-003）。手元で `make check-version TAG=v0.1.0`
+##    と打って、CI と同じ判定が同じ言葉で返ることに意味がある。
+##
+## 🔑 依存宣言（scopegrep の `scopegrep-core = { ..., version = "x" }`）も同じ版か見る。
+##    ここがずれると、単独 publish した bin が古い core を引く。
+check-version:
+	@case "$(TAG)" in \
+	  v?*) ;; \
+	  "") echo "check-version: TAG= が空。例: make check-version TAG=v0.1.0"; exit 2 ;; \
+	  *) echo "check-version: TAG=$(TAG) は v で始まっていない。タグは v0.1.0 の形で打つ"; exit 2 ;; \
+	esac
+	@expected="$(TAG)"; expected="$${expected#v}"; \
+	bin=`sed -n 's/^version = "\([^"]*\)".*/\1/p' scopegrep/Cargo.toml | head -n 1`; \
+	core=`sed -n 's/^version = "\([^"]*\)".*/\1/p' scopegrep-core/Cargo.toml | head -n 1`; \
+	dep=`sed -n 's/^scopegrep-core = .*version = "\([^"]*\)".*/\1/p' scopegrep/Cargo.toml | head -n 1`; \
+	status=0; \
+	for pair in "scopegrep の版:$$bin" "scopegrep-core の版:$$core" "scopegrep の依存宣言:$$dep"; do \
+	  found="$${pair#*:}"; \
+	  if [ "$$found" != "$$expected" ]; then \
+	    echo "check-version: タグ $(TAG) に対し $${pair%%:*}が $$found（期待: $$expected）"; \
+	    status=1; \
+	  fi; \
+	done; \
+	if [ $$status -ne 0 ]; then \
+	  echo "check-version: 版の正本は Cargo.toml。タグではなく Cargo.toml を直すか、タグを打ち直す"; \
+	  exit 1; \
+	fi; \
+	echo "check-version: タグ $(TAG) と Cargo.toml の版 $$expected は一致する"
+
+## package — crates.io に出す .crate を作れることを確かめる（手順は docs/release.md）。
+##
+## 🔴 make check には入れない。ネットワークと時間を要するので、
+##    「提出前に必ず通すもの」と「配る直前に1回やること」を混ぜない。
+##
+## 🔴 **2つを1回の cargo package で作ること**（2026-09-02 実測）。
+##    分けて `cargo package -p scopegrep` を打つと、--no-verify を付けても
+##    「no matching package named `scopegrep-core` found」で落ちる。
+##    .crate に入れる Cargo.lock を解決する時点で crates.io を見にいくためで、
+##    まだ core が公開されていない初回は原理的に通らない。
+##    まとめて渡すと、cargo が一時レジストリに core を置いて bin を検証する
+##    （実測: "Unpacking scopegrep-core (registry .../tmp-registry)"）。
+##    ⇒ 初回でも検証ビルドまで通る。--no-verify で目をつぶる必要がない。
+##
+## 🔑 作業ツリーが汚れていると cargo が拒む。commit してから打つこと
+##    （--allow-dirty で黙らせない。何を配ったかが git で辿れなくなる）。
+package:
+	$(CARGO) package -p scopegrep-core -p scopegrep --locked
 
 clean:
 	$(CARGO) clean

@@ -11,6 +11,10 @@
 //! `-e` の例（ADR 0002）。`make check` は feature 付きでも走るので、
 //! **どの例も、いずれかの構成では必ず実行される**。飛ばした結果 1 件も実行されなければ失敗する。
 //!
+//! 🔴 **照合する README は1つではない**。`README.md`（英語）と `README.ja.md`（日本語）は
+//! 同じ `console` ブロックを持つので、**両方に同じ検査をかける**。片方だけ見ると、
+//! もう片方に「動かない例」が残っていても緑になる。
+//!
 //! コマンドはリポジトリのルートを cwd にして走らせる。README の例が
 //! ルートから打った形で書かれているからで、cwd を変えると例の意味が変わる。
 
@@ -68,9 +72,14 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// 照合する README。**英語版と日本語版の両方**を同じ検査にかける。
+///
+/// 🔴 ここから名前を減らさないこと。減らした README は誰にも照合されなくなる。
+const READMES: [&str; 2] = ["README.md", "README.ja.md"];
+
 /// README の本文。読めなければ空文字列になり、例が 0 件として失敗する。
-fn readme() -> String {
-    std::fs::read_to_string(repository_root().join("README.md")).unwrap_or_default()
+fn readme(name: &str) -> String {
+    std::fs::read_to_string(repository_root().join(name)).unwrap_or_default()
 }
 
 /// ```` ```console ```` ブロックの `$ …` 行と、それに続く出力を取り出す。
@@ -176,48 +185,71 @@ fn run(root: &Path, arguments: &[String]) -> Option<Output> {
 
 #[test]
 fn every_console_example_matches_the_real_output() {
+    for name in READMES {
+        verify_examples(name);
+    }
+}
+
+/// README 1ファイル分の例を、すべて実行して照合する。
+fn verify_examples(name: &str) {
     let root = repository_root();
-    let text = readme();
+    let text = readme(name);
     let found = examples(&text);
     assert!(
         !found.is_empty(),
-        "README に console ブロックの例が1つも無い"
+        "{name} に console ブロックの例が1つも無い"
     );
 
     let mut verified = 0_usize;
     for example in &found {
-        let arguments = split_arguments(example.command());
-        if skipped(&arguments) {
-            continue;
-        }
-        let Some(output) = run(&root, &arguments) else {
-            panic!(
-                "README {}行目のコマンドを実行できない: $ {}",
-                example.line(),
-                example.command()
-            );
-        };
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            example.expected(),
-            "README {}行目の例が実際の出力と違う: $ {}",
-            example.line(),
-            example.command()
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stderr),
-            "",
-            "README {}行目の例が標準エラーに書いている",
-            example.line()
-        );
-        verified = verified.saturating_add(1_usize);
+        verified = verified.saturating_add(verify_example(&root, name, example));
     }
 
     // 🔴 飛ばした結果として1件も実行されなかったなら、それは緑ではない（QLT-007）。
     assert!(
         verified >= 1_usize,
-        "この構成で検証できた例が1つも無い（例 {} 件すべて飛ばされた）",
+        "この構成の {name} で検証できた例が1つも無い（例 {} 件すべて飛ばされた）",
         found.len()
+    );
+}
+
+/// 例1件を照合する。実行したなら 1、この構成で飛ばしたなら 0 を返す。
+///
+/// 🔑 実行できなかったことは `assert!` で落とす。`panic!` は本番コードでは
+/// 禁止されており（`clippy::panic` = forbid）、**この関数は `#[test]` ではない**ので
+/// テストの免除も効かない。免除を広げるのではなく、書き方を変える。
+fn verify_example(root: &Path, name: &str, example: &Example) -> usize {
+    let arguments = split_arguments(example.command());
+    if skipped(&arguments) {
+        return 0_usize;
+    }
+    let executed = run(root, &arguments);
+    assert!(
+        executed.is_some(),
+        "{name} {}行目のコマンドを実行できない: $ {}",
+        example.line(),
+        example.command()
+    );
+    executed.map_or(0_usize, |output| {
+        compare_output(name, example, &output);
+        1_usize
+    })
+}
+
+/// 実行結果を README の記述と突き合わせる。標準エラーに何か書いていても落とす。
+fn compare_output(name: &str, example: &Example, output: &Output) {
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        example.expected(),
+        "{name} {}行目の例が実際の出力と違う: $ {}",
+        example.line(),
+        example.command()
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "",
+        "{name} {}行目の例が標準エラーに書いている",
+        example.line()
     );
 }
 
@@ -225,17 +257,22 @@ fn every_console_example_matches_the_real_output() {
 
 /// 🔴 例が README から消えると、上のテストは「全ての例が一致した」と言って緑になる。
 /// **空振りしても緑になる検査は、検査ではない**（QLT-007）。
+///
+/// 🔴 **どちらか一方で 0 件でも落とす。** 英語版と日本語版は同じ例を持つので、
+/// 片方から例が消えた状態は「翻訳が片側だけ動いた」ことそのものである。
 #[test]
-fn the_readme_keeps_at_least_one_scopegrep_example() {
-    let text = readme();
-    let count = examples(&text)
-        .iter()
-        .filter(|example| example.command().starts_with("scopegrep "))
-        .count();
-    assert!(
-        count >= 1_usize,
-        "README から `$ scopegrep` の例が消えている（実際: {count} 件）"
-    );
+fn each_readme_keeps_at_least_one_scopegrep_example() {
+    for name in READMES {
+        let text = readme(name);
+        let count = examples(&text)
+            .iter()
+            .filter(|example| example.command().starts_with("scopegrep "))
+            .count();
+        assert!(
+            count >= 1_usize,
+            "{name} から `$ scopegrep` の例が消えている（実際: {count} 件）"
+        );
+    }
 }
 
 // ── 3. 例の読み方そのもの ───────────────────────────────────────────────────

@@ -481,9 +481,9 @@ impl Scanner {
     /// ブロックスカラーの内容行なら取り込む。取り込んだら `true`。
     fn feed_block(&mut self, mut block: PendingBlock, line: &str) -> bool {
         if line.trim().is_empty() {
-            if let Some(start) = block.indent() {
-                self.record_block_line(&block, line, start);
-            }
+            // 🔑 空の内容行は記録しない。空でない needle には一致しえず、
+            //    記録すると末尾の空行（YAML の clip では捨てられる）が空の値として出る
+            //    （実測: release.yml の `run: |` の後ろの空行が `.run = ` として 3 件出た）。
             self.pending = Some(Continuation::Block(block));
             return true;
         }
@@ -734,6 +734,16 @@ mod tests {
         assert_eq!(hit.path().pointer(), "/steps/0/if");
         assert_eq!(hit.line().get(), 4_u32);
         assert_eq!(only(source, "echo one").path().pointer(), "/steps/0/run");
+    }
+
+    /// 空の内容行は値として出ない。末尾の空行（YAML の clip が捨てるもの）も途中の空行も同じ。
+    #[test]
+    fn blank_lines_inside_a_block_scalar_are_not_values() {
+        let source = "a:\n  run: |\n    echo hi\n\n    echo again\n\n  next: 1\nb: |\n  x\n\n";
+        let all = hits(source, "");
+        let lines: Vec<u32> = all.iter().map(|hit| hit.line().get()).collect();
+        assert_eq!(lines, alloc::vec![3_u32, 5_u32, 7_u32, 9_u32]);
+        assert!(all.iter().all(|hit| !hit.value().is_empty()));
     }
 
     #[test]
