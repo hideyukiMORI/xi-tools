@@ -20,11 +20,9 @@ pub enum PorcelainErrorKind {
 impl fmt::Display for PorcelainErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::MissingHead => {
-                f.write_str("`# branch.head` が無い（`--branch` を付けて実行する）")
-            }
-            Self::MalformedHeader => f.write_str("`#` 見出しの値が読めない"),
-            Self::UnexpectedLine => f.write_str("porcelain v2 の行として読めない"),
+            Self::MissingHead => f.write_str("missing `# branch.head` (run with --branch)"),
+            Self::MalformedHeader => f.write_str("cannot read the value of a `#` header"),
+            Self::UnexpectedLine => f.write_str("not readable as a porcelain v2 line"),
         }
     }
 }

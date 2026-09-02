@@ -16,10 +16,10 @@ use crate::reason;
 use crate::repository::Repository;
 
 /// `git status` の出力が UTF-8 でなかったときの理由。
-const STATUS_NOT_UTF8: &str = "git status の出力が UTF-8 ではない";
+const STATUS_NOT_UTF8: &str = "git status output is not UTF-8";
 
 /// `git` が終了コードだけで失敗し、stderr に何も言わなかったときの理由。
-const STATUS_FAILED: &str = "git status が失敗した（理由の出力が無い）";
+const STATUS_FAILED: &str = "git status failed (no reason printed)";
 
 /// 1 リポジトリの手元の状態と、GitHub の owner/name を集める。
 ///

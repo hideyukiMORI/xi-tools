@@ -17,7 +17,7 @@ use crate::reason;
 use crate::target::Target;
 
 /// `gh` の出力が UTF-8 でなかったときの理由。
-const NOT_UTF8: &str = "gh の出力が UTF-8 ではない";
+const NOT_UTF8: &str = "gh output is not UTF-8";
 
 /// 聞く相手を [`REPOS_PER_QUERY`] 個ずつの塊に割る。
 ///

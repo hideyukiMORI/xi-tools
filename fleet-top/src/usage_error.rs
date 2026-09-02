@@ -26,12 +26,12 @@ impl fmt::Display for UsageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Arguments => write!(f, "usage: {USAGE}"),
-            Self::StaleDaysWithoutValue => f.write_str("--stale-days: 日数が続いていない"),
+            Self::StaleDaysWithoutValue => f.write_str("--stale-days: no number of days follows"),
             Self::StaleDaysNotANumber(ref text) => {
-                write!(f, "--stale-days: `{text}` は 0 以上の整数ではない")
+                write!(f, "--stale-days: `{text}` is not an integer of 0 or more")
             }
             Self::RepeatedStaleDays => {
-                f.write_str("--stale-days: 2回以上書かれている（どちらが効くかを決めない）")
+                f.write_str("--stale-days: given more than once (which one wins is not decided)")
             }
         }
     }
@@ -56,7 +56,7 @@ mod tests {
         let error = UsageError::StaleDaysNotANumber(String::from("x"));
         assert_eq!(
             format!("{error}"),
-            "--stale-days: `x` は 0 以上の整数ではない"
+            "--stale-days: `x` is not an integer of 0 or more"
         );
     }
 }

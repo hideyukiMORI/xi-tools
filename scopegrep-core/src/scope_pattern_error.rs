@@ -20,11 +20,11 @@ pub enum ScopePatternError {
 impl fmt::Display for ScopePatternError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Empty => f.write_str("パターンが空である"),
-            Self::NotRooted => f.write_str("パターンは `/` で始まらなければならない"),
-            Self::EmptySegment => {
-                f.write_str("空のセグメントがある（`//` と末尾の `/` は書けない）")
-            }
+            Self::Empty => f.write_str("the pattern is empty"),
+            Self::NotRooted => f.write_str("the pattern must start with `/`"),
+            Self::EmptySegment => f.write_str(
+                "the pattern has an empty segment (`//` and a trailing `/` cannot be written)",
+            ),
         }
     }
 }

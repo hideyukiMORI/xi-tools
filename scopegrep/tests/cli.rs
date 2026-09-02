@@ -306,8 +306,9 @@ fn no_hit_prints_nothing_and_exits_one() {
 #[test]
 fn an_unreadable_file_is_reported_by_line_and_still_exits_two() {
     let output = spawn(&["cancelled()", ANCHOR, FIXTURE]).expect("バイナリを起動できるはず");
-    let expected_error =
-        "scopegrep: ".to_owned() + ANCHOR + ":5: アンカー（&name）は読めない構文である\n";
+    let expected_error = "scopegrep: ".to_owned()
+        + ANCHOR
+        + ":5: an anchor (&name) is outside the supported subset\n";
     assert_eq!(stderr(&output), expected_error);
     assert_eq!(stdout(&output).lines().count(), 2);
     assert_eq!(output.status.code(), Some(2_i32));
@@ -629,7 +630,7 @@ fn a_broken_regex_says_why_and_exits_two() {
     let output = spawn(&["-e", "cancel+ed(", FIXTURE]).expect("バイナリを起動できるはず");
     assert_eq!(stdout(&output), "");
     assert!(
-        stderr(&output).starts_with("scopegrep: 正規表現が不正: "),
+        stderr(&output).starts_with("scopegrep: invalid regular expression: "),
         "実際の出力: {}",
         stderr(&output)
     );
@@ -646,8 +647,8 @@ fn a_regex_is_refused_when_the_binary_was_built_without_it() {
         assert_eq!(stdout(&output), "");
         assert_eq!(
             stderr(&output),
-            "scopegrep: この binary は正規表現なしでビルドされている\
-             （cargo install --features regex）\n"
+            "scopegrep: this binary was built without regular expressions \
+             (cargo install --features regex)\n"
         );
         assert_eq!(output.status.code(), Some(2_i32));
     }
@@ -660,7 +661,7 @@ fn a_repeated_regex_flag_is_a_usage_error() {
     assert_eq!(stdout(&output), "");
     assert_eq!(
         stderr(&output),
-        "scopegrep: -e: 2回以上書かれている（どちらが効くかを決めない）\n"
+        "scopegrep: -e: given more than once (which one wins is not decided)\n"
     );
     assert_eq!(output.status.code(), Some(2_i32));
 }
@@ -670,6 +671,9 @@ fn a_repeated_regex_flag_is_a_usage_error() {
 fn a_regex_flag_without_a_pattern_is_a_usage_error() {
     let output = spawn(&["x", FIXTURE, "-e"]).expect("バイナリを起動できるはず");
     assert_eq!(stdout(&output), "");
-    assert_eq!(stderr(&output), "scopegrep: -e: 正規表現が続いていない\n");
+    assert_eq!(
+        stderr(&output),
+        "scopegrep: -e: no regular expression follows\n"
+    );
     assert_eq!(output.status.code(), Some(2_i32));
 }

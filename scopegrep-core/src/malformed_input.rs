@@ -18,10 +18,10 @@ pub enum MalformedInput {
 impl fmt::Display for MalformedInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match *self {
-            Self::TabIndentation => "インデントにタブが混じっている",
-            Self::InconsistentIndentation => "インデントが噛み合っていない",
-            Self::TrailingContent => "値の後ろに余分な文字がある",
-            Self::BlockScalarHeader => "ブロックスカラーの指示子が読めない",
+            Self::TabIndentation => "the indentation contains a tab",
+            Self::InconsistentIndentation => "the indentation does not line up",
+            Self::TrailingContent => "trailing characters after the value",
+            Self::BlockScalarHeader => "cannot read the block scalar indicator",
         };
         f.write_str(text)
     }

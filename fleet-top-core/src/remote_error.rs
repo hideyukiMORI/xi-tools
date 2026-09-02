@@ -23,9 +23,9 @@ pub enum RemoteError {
 impl fmt::Display for RemoteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::NotFound => f.write_str("GitHub にそのリポジトリが無い"),
-            Self::Rejected(ref message) => write!(f, "GitHub が拒んだ: {message}"),
-            Self::Malformed(ref path) => write!(f, "応答の形が想定と違う: {path}"),
+            Self::NotFound => f.write_str("repository not found on GitHub"),
+            Self::Rejected(ref message) => write!(f, "GitHub rejected the request: {message}"),
+            Self::Malformed(ref path) => write!(f, "unexpected response shape: {path}"),
         }
     }
 }
@@ -42,14 +42,14 @@ mod tests {
     fn display_carries_the_message_and_the_path() {
         assert_eq!(
             format!("{}", RemoteError::Rejected(String::from("Bad credentials"))),
-            "GitHub が拒んだ: Bad credentials"
+            "GitHub rejected the request: Bad credentials"
         );
         assert_eq!(
             format!(
                 "{}",
                 RemoteError::Malformed(String::from("r1.pullRequests.totalCount"))
             ),
-            "応答の形が想定と違う: r1.pullRequests.totalCount"
+            "unexpected response shape: r1.pullRequests.totalCount"
         );
         assert!(!format!("{}", RemoteError::NotFound).is_empty());
     }

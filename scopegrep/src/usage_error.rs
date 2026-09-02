@@ -44,19 +44,20 @@ impl fmt::Display for UsageError {
         match self {
             Self::Arguments => write!(f, "usage: {USAGE}"),
             Self::Scope(reason) => write!(f, "--scope: {reason}"),
-            Self::ScopeWithoutPattern => f.write_str("--scope: パターンが続いていない"),
+            Self::ScopeWithoutPattern => f.write_str("--scope: no pattern follows"),
             Self::RepeatedScope => {
-                f.write_str("--scope: 2回以上書かれている（どちらが効くかを決めない）")
+                f.write_str("--scope: given more than once (which one wins is not decided)")
             }
-            Self::RegexWithoutPattern => f.write_str("-e: 正規表現が続いていない"),
+            Self::RegexWithoutPattern => f.write_str("-e: no regular expression follows"),
             Self::RepeatedRegex => {
-                f.write_str("-e: 2回以上書かれている（どちらが効くかを決めない）")
+                f.write_str("-e: given more than once (which one wins is not decided)")
             }
             #[cfg(feature = "regex")]
-            Self::Regex(reason) => write!(f, "正規表現が不正: {reason}"),
+            Self::Regex(reason) => write!(f, "invalid regular expression: {reason}"),
             #[cfg(not(feature = "regex"))]
             Self::RegexUnsupported => f.write_str(
-                "この binary は正規表現なしでビルドされている（cargo install --features regex）",
+                "this binary was built without regular expressions \
+                 (cargo install --features regex)",
             ),
         }
     }
