@@ -6,6 +6,7 @@ use alloc::string::String;
 use crate::column::Column;
 use crate::hit::Hit;
 use crate::line_number::LineNumber;
+use crate::query::Query;
 use crate::scope_path::ScopePath;
 
 /// 1行ぶんのスカラー値と、その所属。
@@ -41,9 +42,16 @@ impl ScalarLine {
         }
     }
 
-    /// `needle` を含むなら1件を返す。**1行につき最大1件**（`grep` と同じ行単位）。
-    pub(crate) fn find(&self, needle: &str) -> Option<Hit> {
-        let column = self.column.locate(&self.text, needle)?;
+    /// 条件に当たるなら1件を返す。**1行につき最大1件**（`grep` と同じ行単位）。
+    ///
+    /// 所属の絞り込み（`--scope`）は照合より先に見る。**所属が外なら、そもそも探さない**。
+    pub(crate) fn find(&self, query: &Query) -> Option<Hit> {
+        if !query.covers(&self.path) {
+            return None;
+        }
+        let column = self
+            .column
+            .locate(&self.text, query.needle(), query.case())?;
         Some(Hit::in_value(
             self.path.clone(),
             self.line,

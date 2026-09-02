@@ -102,22 +102,31 @@ fn split_arguments(command: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
+    let mut written = false;
     for character in command.chars() {
         match character {
-            '\'' => quoted = !quoted,
-            ' ' if !quoted => push_token(&mut found, &mut current),
+            '\'' => {
+                quoted = !quoted;
+                written = true;
+            }
+            ' ' if !quoted => push_token(&mut found, &mut current, &mut written),
             plain => current.push(plain),
         }
     }
-    push_token(&mut found, &mut current);
+    push_token(&mut found, &mut current, &mut written);
     found
 }
 
 /// 組み立て中の引数を1つ確定させる。空なら何もしない。
-fn push_token(found: &mut Vec<String>, current: &mut String) {
-    if !current.is_empty() {
+///
+/// 🔑 `''` だけは例外で、**空のまま1つの引数になる**。`--scope` で所属だけを
+/// 指定するとき、needle は空文字列になる（`scopegrep --scope '/a/b' ''`）ので、
+/// ここで落とすと README の例と実際の起動が食い違う。
+fn push_token(found: &mut Vec<String>, current: &mut String, written: &mut bool) {
+    if !current.is_empty() || *written {
         found.push(core::mem::take(current));
     }
+    *written = false;
 }
 
 /// README に書いてよいコマンドは2つだけ。
@@ -206,6 +215,22 @@ fn a_quoted_needle_stays_one_argument() {
         vec![
             "scopegrep".to_owned(),
             "cancelled() and more".to_owned(),
+            "testdata/".to_owned(),
+        ]
+    );
+}
+
+/// 🔴 `''` は**空の引数1つ**である。落とすと `--scope '/a' ''` の例で
+/// パスが needle として読まれ、README の例と実際の起動が食い違う。
+#[test]
+fn an_explicitly_empty_argument_survives() {
+    assert_eq!(
+        split_arguments("scopegrep --scope '/jobs/*/steps' '' testdata/"),
+        vec![
+            "scopegrep".to_owned(),
+            "--scope".to_owned(),
+            "/jobs/*/steps".to_owned(),
+            String::new(),
             "testdata/".to_owned(),
         ]
     );

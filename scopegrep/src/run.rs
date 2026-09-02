@@ -36,7 +36,7 @@ fn examine(file: &Path, options: &Options) -> Outcome {
             return Outcome::Failed;
         }
     };
-    let hits = document.search(options.needle(), options.scope());
+    let hits = document.search(options.query());
     if hits.is_empty() {
         return Outcome::Missing;
     }

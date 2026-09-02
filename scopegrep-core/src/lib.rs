@@ -7,13 +7,13 @@
 //!
 //! ```
 //! use scopegrep_core::hit_kind::HitKind;
-//! use scopegrep_core::search_scope::SearchScope;
+//! use scopegrep_core::query::Query;
 //!
 //! let source = "jobs:\n  e2e:\n    steps:\n      - name: Upload\n        if: ${{ !cancelled() }}\n";
 //! let Ok(document) = scopegrep_core::parse(source) else {
 //!     return;
 //! };
-//! let hits = document.search("cancelled()", SearchScope::Values);
+//! let hits = document.search(&Query::new("cancelled()"));
 //! let Some(hit) = hits.first() else {
 //!     return;
 //! };
@@ -44,6 +44,7 @@
 
 extern crate alloc;
 
+pub mod case_match;
 pub mod column;
 pub mod document;
 pub mod hit;
@@ -52,7 +53,10 @@ pub mod line_number;
 pub mod malformed_input;
 pub mod parse_error;
 pub mod parse_error_kind;
+pub mod query;
 pub mod scope_path;
+pub mod scope_pattern;
+pub mod scope_pattern_error;
 pub mod search_scope;
 pub mod unsupported_syntax;
 
@@ -66,6 +70,7 @@ mod frame;
 mod frame_kind;
 mod key_span;
 mod mapping_entry;
+mod pattern_segment;
 mod pending_block;
 mod pending_flow;
 mod scalar_line;

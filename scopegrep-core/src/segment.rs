@@ -31,6 +31,17 @@ impl Segment {
         }
     }
 
+    /// 生のキー（索引なら 10 進表記）が `text` と完全一致するか。
+    ///
+    /// 🔑 比べるのは**エスケープを解いた後の生の文字列**である。所属パターンの側も
+    /// 同じ形に直してから来るので、`~0` `~1` の書き方の違いで一致が変わらない。
+    pub(crate) fn is_written(&self, text: &str) -> bool {
+        match *self {
+            Self::Key(ref key) => key == text,
+            Self::Index { index, .. } => index.to_string() == text,
+        }
+    }
+
     /// ラベルを付け直した要素を返す。キーはそのまま。
     pub(crate) fn with_label(self, label: Option<String>) -> Self {
         match self {
@@ -91,6 +102,26 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::{Segment, escape, render_key};
     use alloc::borrow::ToOwned;
+
+    #[test]
+    fn is_written_compares_the_raw_text() {
+        assert!(Segment::Key("a/b".to_owned()).is_written("a/b"));
+        assert!(!Segment::Key("a/b".to_owned()).is_written("a~1b"));
+        assert!(
+            Segment::Index {
+                index: 2,
+                label: None
+            }
+            .is_written("2")
+        );
+        assert!(
+            !Segment::Index {
+                index: 2,
+                label: None
+            }
+            .is_written("02")
+        );
+    }
 
     #[test]
     fn pointer_token_escapes_rfc6901() {

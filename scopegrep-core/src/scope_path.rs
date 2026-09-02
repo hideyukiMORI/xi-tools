@@ -22,6 +22,11 @@ impl ScopePath {
         Self { segments }
     }
 
+    /// 要素の並び。所属パターンとの突き合わせに使う（クレート内部だけ）。
+    pub(crate) fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+
     /// RFC 6901 の JSON Pointer（`/jobs/e2e/steps/2/if`）。
     ///
     /// キーの `~` は `~0`、`/` は `~1` に退避する。

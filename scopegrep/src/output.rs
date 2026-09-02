@@ -14,27 +14,27 @@ use scopegrep_core::parse_error::ParseError;
 
 use crate::output_format::OutputFormat;
 use crate::render;
-use crate::usage_error::UsageError;
+use crate::usage_error::{USAGE, UsageError};
+use crate::walk;
 
-/// 使い方。`--help` で出す。
-const HELP: &str = "\
-scopegrep — ヒットした値が、構造のどこに属するかを返す
-
-usage:
-    scopegrep [--json] [--comments] <needle> <path>...
-    scopegrep --help | --version
-
+/// 使い方の本文。**usage の1行は [`crate::usage_error::USAGE`] が正である**
+/// （使い方の誤りを報告するときと同じ文字列を、2箇所に書かない）。
+const HELP_DETAIL: &str = "\
 arguments:
-    <needle>   探す固定文字列（正規表現ではない・大文字小文字を区別する）
+    <needle>   探す固定文字列（正規表現ではない・既定では大文字小文字を区別する）
     <path>     ファイルなら拡張子を問わず読む。
-               ディレクトリなら再帰して .yml / .yaml だけを読む
+               ディレクトリなら再帰して .yml / .yaml だけを読む。
+               省略したら今いる場所を再帰する（表示に ./ を付けない）
 
 options:
-    --json          1ヒット1行の JSON Lines で出す
-    --comments      コメント内の一致も、コメントだと明示して返す
-    --              以降を旗として解釈しない
-    -h, --help      この使い方を出す
-    -V, --version   版を出す
+    -i, --ignore-case   大文字小文字を無視して照合する（列は原文の位置）
+    --scope <pattern>   所属で絞る。JSON Pointer の形で、* は1セグメント・
+                        ** は0個以上（例: /jobs/*/steps/*/if）
+    --json              1ヒット1行の JSON Lines で出す
+    --comments          コメント内の一致も、コメントだと明示して返す
+    --                  以降を旗として解釈しない
+    -h, --help          この使い方を出す
+    -V, --version       版を出す
 
 exit status:
     0   1件以上ヒットした
@@ -51,8 +51,17 @@ pub(crate) fn hit(file: &Path, found: &Hit, format: OutputFormat) {
 }
 
 /// 使い方を標準出力へ出す（`--help` は成功である）。
+///
+/// 🔑 走査から外すディレクトリの一覧は [`walk::SKIPPED_DIRECTORIES`] から作る。
+/// 一覧を help に手で書くと、リストを直したときに片方だけ古くなる。
 pub(crate) fn help() {
-    to_stdout(HELP);
+    to_stdout(&format!(
+        "scopegrep — ヒットした値が、構造のどこに属するかを返す\n\n\
+         usage:\n    {USAGE}\n    scopegrep --help | --version\n\n\
+         {HELP_DETAIL}\n\n\
+         skipped directories (再帰のときだけ。名指しされたパスは読む):\n    {}",
+        walk::SKIPPED_DIRECTORIES.join(" ")
+    ));
 }
 
 /// 版を標準出力へ出す。版の正本は `Cargo.toml` である。

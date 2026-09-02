@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 
 use crate::comment_line::CommentLine;
 use crate::hit::Hit;
+use crate::query::Query;
 use crate::scalar_line::ScalarLine;
 use crate::search_scope::SearchScope;
 
@@ -26,24 +27,25 @@ impl Document {
         Self { scalars, comments }
     }
 
-    /// 固定文字列 `needle` を含む行を、出現順（行 → 桁）で返す。
+    /// [`Query`] に当たる行を、出現順（行 → 桁）で返す。
     ///
-    /// - `scope` が [`SearchScope::Values`] なら探すのは**スカラー値だけ**。
-    ///   [`SearchScope::ValuesAndComments`] ならコメントも返すが、
-    ///   どちらだったかは [`Hit::kind`] で必ず区別できる。キーは常に探さない
+    /// - 既定では探すのは**スカラー値だけ**。[`Query::including_comments`] を付ければ
+    ///   コメントも返るが、どちらだったかは [`Hit::kind`] で必ず区別できる。
+    ///   キーは常に探さない
+    /// - [`Query::within`] を付けると、**所属が一致する行だけ**に絞る
     /// - 1行に何度現れてもヒットは1件（`grep` と同じ行単位）。桁は最初の出現位置
-    /// - 大文字小文字は区別する。正規表現ではない
+    /// - 既定では大文字小文字を区別する（[`Query::ignoring_case`] で無視する）。正規表現ではない
     #[must_use]
-    pub fn search(&self, needle: &str, scope: SearchScope) -> Vec<Hit> {
+    pub fn search(&self, query: &Query) -> Vec<Hit> {
         let mut found: Vec<Hit> = self
             .scalars
             .iter()
-            .filter_map(|scalar| scalar.find(needle))
+            .filter_map(|scalar| scalar.find(query))
             .collect();
-        match scope {
+        match query.kinds() {
             SearchScope::Values => {}
             SearchScope::ValuesAndComments => {
-                found.extend(self.comments.iter().filter_map(|line| line.find(needle)));
+                found.extend(self.comments.iter().filter_map(|line| line.find(query)));
                 // 値とコメントは別の表にあるので、混ぜたら並べ直す。
                 // 行末コメントは値と同じ行に出るため、行だけでは順序が決まらない。
                 found.sort_by_key(|hit| (hit.line(), hit.column()));
@@ -58,7 +60,8 @@ mod tests {
     use crate::hit::Hit;
     use crate::hit_kind::HitKind;
     use crate::parse;
-    use crate::search_scope::SearchScope;
+    use crate::query::Query;
+    use crate::scope_pattern::ScopePattern;
     use alloc::format;
     use alloc::vec::Vec;
 
@@ -68,7 +71,7 @@ mod tests {
     fn hits(source: &str, needle: &str) -> Vec<Hit> {
         parse(source)
             .expect("fixture は読める")
-            .search(needle, SearchScope::Values)
+            .search(&Query::new(needle))
     }
 
     fn lines(found: &[Hit]) -> Vec<u32> {
@@ -148,7 +151,7 @@ mod tests {
     fn asking_for_comments_returns_the_same_five_lines_grep_does() {
         let found = parse(WORKFLOW)
             .expect("fixture は読める")
-            .search("cancelled()", SearchScope::ValuesAndComments);
+            .search(&Query::new("cancelled()").including_comments());
         assert_eq!(lines(&found), [4_u32, 29_u32, 30_u32, 33_u32, 46_u32]);
         let kinds: Vec<HitKind> = found.iter().map(Hit::kind).collect();
         assert_eq!(
@@ -180,7 +183,7 @@ mod tests {
     fn a_comment_before_a_step_is_not_attached_to_the_previous_step() {
         let found = parse(WORKFLOW)
             .expect("fixture は読める")
-            .search("1) 散文", SearchScope::ValuesAndComments);
+            .search(&Query::new("1) 散文").including_comments());
         let first = found.first().expect("29 行目のコメントがある");
         assert_eq!(first.line().get(), 29_u32);
         assert_eq!(first.path().pointer(), "/jobs/frontend-check/steps");
@@ -192,7 +195,7 @@ mod tests {
     fn a_comment_inside_a_step_carries_the_same_label_as_its_values() {
         let found = parse(WORKFLOW)
             .expect("fixture は読める")
-            .search("2) 欠陥", SearchScope::ValuesAndComments);
+            .search(&Query::new("2) 欠陥").including_comments());
         let first = found.first().expect("32 行目のコメントがある");
         assert_eq!(first.line().get(), 32_u32);
         assert_eq!(first.path().pointer(), "/jobs/frontend-check/steps/3");
@@ -212,6 +215,60 @@ mod tests {
             format!("{}", first.path()),
             "jobs.frontend-check.steps[0].uses"
         );
+    }
+
+    /// 🔴 `--scope` は**所属で絞る**。needle が空なら、その場所の値が全部並ぶ。
+    #[test]
+    fn a_scope_pattern_lists_every_value_at_that_place() {
+        let Ok(pattern) = ScopePattern::parse("/jobs/*/steps/*/if") else {
+            panic!("読めるはず");
+        };
+        let found = parse(WORKFLOW)
+            .expect("fixture は読める")
+            .search(&Query::new("").within(pattern));
+        assert_eq!(lines(&found), [33_u32, 46_u32]);
+    }
+
+    /// 絞り込みは**照合と独立**である。所属が合っても needle が無ければ返らない。
+    #[test]
+    fn a_scope_pattern_does_not_widen_the_match() {
+        let Ok(pattern) = ScopePattern::parse("/jobs/**") else {
+            panic!("読めるはず");
+        };
+        let found = parse(WORKFLOW)
+            .expect("fixture は読める")
+            .search(&Query::new("no-such-needle").within(pattern));
+        assert!(found.is_empty());
+    }
+
+    /// コメントのヒットにも同じ規則で当てる。ルートのコメントは `/**` にだけ当たる。
+    #[test]
+    fn a_scope_pattern_applies_to_comments_too() {
+        let Ok(root) = ScopePattern::parse("/**") else {
+            panic!("読めるはず");
+        };
+        let Ok(steps) = ScopePattern::parse("/jobs/*/steps") else {
+            panic!("読めるはず");
+        };
+        let document = parse(WORKFLOW).expect("fixture は読める");
+        let everywhere =
+            document.search(&Query::new("cancelled()").including_comments().within(root));
+        let inside = document.search(&Query::new("cancelled()").including_comments().within(steps));
+        assert_eq!(lines(&everywhere), [4_u32, 29_u32, 30_u32, 33_u32, 46_u32]);
+        assert_eq!(lines(&inside), [29_u32, 30_u32]);
+    }
+
+    /// 🔑 `-i` は照合だけを緩める。**値は原文のまま**返る。
+    #[test]
+    fn ignoring_case_finds_the_same_lines() {
+        let found = parse(WORKFLOW)
+            .expect("fixture は読める")
+            .search(&Query::new("CANCELLED()").ignoring_case());
+        assert_eq!(lines(&found), [33_u32, 46_u32]);
+        let first = found.first().expect("1件目がある");
+        assert_eq!(first.value(), "${{ !cancelled() }}");
+        assert_eq!(first.column().get(), 18_u32);
+        assert!(hits(WORKFLOW, "CANCELLED()").is_empty(), "既定は区別する");
     }
 
     /// `with:` の下の `name:` は**ラベルではない**（シーケンス要素の直下ではない）。

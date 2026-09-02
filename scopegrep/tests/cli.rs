@@ -38,6 +38,16 @@ fn spawn(arguments: &[&str]) -> io::Result<Output> {
         .output()
 }
 
+/// `root` を cwd にしてバイナリを起動する。
+///
+/// 🔑 パスを省略したときの表示（`./` を付けない）は cwd を変えないと確かめられない。
+fn spawn_in(root: &Path, arguments: &[&str]) -> io::Result<Output> {
+    Command::new(env!("CARGO_BIN_EXE_scopegrep"))
+        .args(arguments)
+        .current_dir(root)
+        .output()
+}
+
 /// 標準出力を文字列にする。
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
@@ -48,17 +58,23 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+/// 走査から外すディレクトリ。`walk.rs` の定数と同じ並びである。
+const SKIPPED: [&str; 5] = [".git", "node_modules", "vendor", "target", ".venv"];
+
 /// 走査順の判定に使うディレクトリを作る。
 ///
-/// `.git/` と `.txt` は**読まれてはならない**ものとして置く。
+/// `.txt` と、依存ディレクトリ（`SKIPPED`）に置いた `.yml` は
+/// **読まれてはならない**ものとして置く。
 fn seed_tree(root: &Path) -> io::Result<()> {
     fs::create_dir_all(root.join("z"))?;
-    fs::create_dir_all(root.join(".git"))?;
     fs::write(root.join("a.yaml"), SEED)?;
     fs::write(root.join("m.yml"), SEED)?;
     fs::write(root.join("z/inner.yml"), SEED)?;
     fs::write(root.join("b.txt"), SEED)?;
-    fs::write(root.join(".git/hidden.yml"), SEED)?;
+    for directory in SKIPPED {
+        fs::create_dir_all(root.join(directory))?;
+        fs::write(root.join(directory).join("hidden.yml"), SEED)?;
+    }
     Ok(())
 }
 
@@ -315,11 +331,12 @@ fn a_missing_path_is_reported_and_exits_two() {
 
 #[test]
 fn bad_arguments_print_the_usage_and_exit_two() {
-    for arguments in [vec![], vec!["cancelled()"]] {
+    for arguments in [vec![], vec!["--"], vec!["--nope", "x"]] {
         let output = spawn(&arguments).expect("バイナリを起動できるはず");
         assert_eq!(
             stderr(&output),
-            "scopegrep: usage: scopegrep [--json] [--comments] <needle> <path>...\n"
+            "scopegrep: usage: scopegrep [-i] [--json] [--comments] \
+             [--scope <pattern>] <needle> [<path>...]\n"
         );
         assert_eq!(stdout(&output), "");
         assert_eq!(output.status.code(), Some(2_i32));
@@ -346,7 +363,7 @@ fn help_and_version_succeed_on_stdout() {
 
 // ── 7. ディレクトリ走査 ─────────────────────────────────────────────────────
 
-/// `.yml` / `.yaml` は読む・`.txt` は読まない・`.git/` は掘らない・並びはバイト順。
+/// `.yml` / `.yaml` は読む・`.txt` は読まない・依存ディレクトリは掘らない・並びはバイト順。
 #[test]
 fn a_directory_is_walked_in_byte_order_without_git_or_other_extensions() {
     let root = temporary("walk");
@@ -375,5 +392,160 @@ fn a_named_file_is_read_whatever_its_extension() {
     fs::remove_dir_all(&root).expect("一時ディレクトリを片付けられるはず");
 
     assert_eq!(stdout(&output), seeded_line(&root, "b.txt"));
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+// ── 8. 依存ディレクトリを走査から外す ───────────────────────────────────────
+
+/// 🔴 名指しされたパスは除外しない。**除外は「何があるか知らない場所を掘るとき」の話**である。
+#[test]
+fn a_named_dependency_directory_is_still_read() {
+    let root = temporary("named-dependency");
+    seed_tree(&root).expect("一時ディレクトリを作れるはず");
+    let inside = root.join("node_modules").display().to_string();
+    let file = root.join("vendor/hidden.yml").display().to_string();
+
+    let walked = spawn(&["target", &inside]).expect("バイナリを起動できるはず");
+    let named = spawn(&["target", &file]).expect("バイナリを起動できるはず");
+    fs::remove_dir_all(&root).expect("一時ディレクトリを片付けられるはず");
+
+    assert_eq!(
+        stdout(&walked),
+        seeded_line(&root, "node_modules/hidden.yml")
+    );
+    assert_eq!(walked.status.code(), Some(0_i32));
+    assert_eq!(stdout(&named), seeded_line(&root, "vendor/hidden.yml"));
+    assert_eq!(named.status.code(), Some(0_i32));
+}
+
+// ── 9. パスを省略したら「今いる場所」───────────────────────────────────────
+
+/// 🔴 省略したときは `./` を付けない。**明示的に `.` を渡したときは付ける**
+/// （`grep -rn x .` と同じ。与えたパスをそのまま使う規則を崩さない）。
+#[test]
+fn an_omitted_path_walks_the_current_directory_without_a_prefix() {
+    let root = temporary("cwd");
+    seed_tree(&root).expect("一時ディレクトリを作れるはず");
+
+    let omitted = spawn_in(&root, &["target"]).expect("バイナリを起動できるはず");
+    let explicit = spawn_in(&root, &["target", "."]).expect("バイナリを起動できるはず");
+    fs::remove_dir_all(&root).expect("一時ディレクトリを片付けられるはず");
+
+    assert_eq!(
+        stdout(&omitted),
+        "a.yaml:3: steps[0] \"A\" .run = target\n\
+         m.yml:3: steps[0] \"A\" .run = target\n\
+         z/inner.yml:3: steps[0] \"A\" .run = target\n"
+    );
+    assert_eq!(stderr(&omitted), "");
+    assert_eq!(omitted.status.code(), Some(0_i32));
+    assert_eq!(
+        stdout(&explicit),
+        "./a.yaml:3: steps[0] \"A\" .run = target\n\
+         ./m.yml:3: steps[0] \"A\" .run = target\n\
+         ./z/inner.yml:3: steps[0] \"A\" .run = target\n"
+    );
+}
+
+// ── 10. `--scope` — 構造で絞る ──────────────────────────────────────────────
+
+/// 🔴 これが「構造で絞る」ということ。needle が空でも、**所属が合う値だけ**が並ぶ。
+#[test]
+fn a_scope_pattern_lists_every_value_at_that_place() {
+    let output =
+        spawn(&["--scope", "/jobs/*/steps/*/if", "", FIXTURE]).expect("バイナリを起動できるはず");
+    let expected = FIXTURE.to_owned()
+        + ":33: jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if = ${{ !cancelled() }}\n"
+        + FIXTURE
+        + ":46: jobs.e2e.steps[2] \"Upload Playwright report\" .if = ${{ !cancelled() }}\n";
+    assert_eq!(stdout(&output), expected);
+    assert_eq!(stderr(&output), "");
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// `**` はどの深さにも当たる。`*` は**ちょうど1つ**なので、同じ場所には当たらない。
+#[test]
+fn a_double_star_matches_at_any_depth() {
+    let deep = spawn(&["--scope", "/**/uses", "", FIXTURE]).expect("バイナリを起動できるはず");
+    let shallow = spawn(&["--scope", "/*/uses", "", FIXTURE]).expect("バイナリを起動できるはず");
+    let expected = FIXTURE.to_owned()
+        + ":21: jobs.frontend-check.steps[0].uses = actions/checkout@v4\n"
+        + FIXTURE
+        + ":39: jobs.e2e.steps[0].uses = actions/checkout@v4\n"
+        + FIXTURE
+        + ":47: jobs.e2e.steps[2] \"Upload Playwright report\" .uses = actions/upload-artifact@v4\n";
+    assert_eq!(stdout(&deep), expected);
+    assert_eq!(deep.status.code(), Some(0_i32));
+    assert_eq!(stdout(&shallow), "");
+    assert_eq!(shallow.status.code(), Some(1_i32));
+}
+
+/// 🔴 パターンが読めなければ**理由を言って** 2 で終わる。黙って全件返さない。
+#[test]
+fn a_broken_scope_pattern_is_a_usage_error() {
+    for pattern in ["jobs/steps", "", "/jobs//steps"] {
+        let output = spawn(&["--scope", pattern, "x", FIXTURE]).expect("バイナリを起動できるはず");
+        assert_eq!(stdout(&output), "");
+        assert!(
+            stderr(&output).starts_with("scopegrep: --scope: "),
+            "実際の出力: {}",
+            stderr(&output)
+        );
+        assert_eq!(output.status.code(), Some(2_i32));
+    }
+}
+
+/// 🔑 2回書いたら後勝ちにしない。**どちらが効いたか分からない状態を作らない。**
+#[test]
+fn a_repeated_scope_flag_is_a_usage_error() {
+    let output =
+        spawn(&["--scope", "/a", "--scope", "/b", "x", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(2_i32));
+}
+
+/// 値を伴わない `--scope` も使い方の誤りである。
+#[test]
+fn a_scope_flag_without_a_pattern_is_a_usage_error() {
+    let output = spawn(&["x", FIXTURE, "--scope"]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(2_i32));
+}
+
+// ── 11. `-i` — 大文字小文字を無視する ───────────────────────────────────────
+
+/// 🔑 無視するのは**照合だけ**である。値は原文のまま返る。
+#[test]
+fn ignore_case_matches_regardless_of_case() {
+    let folded = spawn(&["-i", "CANCELLED()", FIXTURE]).expect("バイナリを起動できるはず");
+    let exact = spawn(&["CANCELLED()", FIXTURE]).expect("バイナリを起動できるはず");
+    let expected = FIXTURE.to_owned()
+        + ":33: jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if = ${{ !cancelled() }}\n"
+        + FIXTURE
+        + ":46: jobs.e2e.steps[2] \"Upload Playwright report\" .if = ${{ !cancelled() }}\n";
+    assert_eq!(stdout(&folded), expected);
+    assert_eq!(folded.status.code(), Some(0_i32));
+    assert_eq!(stdout(&exact), "", "既定では大文字小文字を区別する");
+    assert_eq!(exact.status.code(), Some(1_i32));
+}
+
+/// 🔴 列は**原文の一致位置**である。`--ignore-case` は `-i` と同じ意味。
+#[test]
+fn ignore_case_reports_the_column_of_the_original_text() {
+    let root = temporary("fold");
+    fs::create_dir_all(&root).expect("一時ディレクトリを作れるはず");
+    fs::write(root.join("a.yml"), "note: STRAßE İstanbul Ziel\n").expect("fixture を書けるはず");
+
+    let output =
+        spawn_in(&root, &["--json", "--ignore-case", "ziel"]).expect("バイナリを起動できるはず");
+    fs::remove_dir_all(&root).expect("一時ディレクトリを片付けられるはず");
+
+    // 🔑 `İ` の小文字は2文字（`i` ＋ 合成用の点）である。小文字化した文字列の上で
+    //    位置を数える実装なら、ここが 24 にずれる。数えるのは**原文**の文字数である。
+    assert_eq!(
+        stdout(&output),
+        "{\"file\":\"a.yml\",\"line\":1,\"column\":23,\"pointer\":\"/note\",\"path\":\"note\",\
+         \"label\":null,\"value\":\"STRAßE İstanbul Ziel\",\"kind\":\"value\"}\n"
+    );
     assert_eq!(output.status.code(), Some(0_i32));
 }

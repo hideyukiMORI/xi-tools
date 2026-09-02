@@ -653,15 +653,13 @@ mod tests {
     use crate::parse;
     use crate::parse_error::ParseError;
     use crate::parse_error_kind::ParseErrorKind;
-    use crate::search_scope::SearchScope;
+    use crate::query::Query;
     use crate::unsupported_syntax::UnsupportedSyntax;
     use alloc::format;
     use alloc::vec::Vec;
 
     fn hits(source: &str, needle: &str) -> Vec<Hit> {
-        parse(source)
-            .expect("読める")
-            .search(needle, SearchScope::Values)
+        parse(source).expect("読める").search(&Query::new(needle))
     }
 
     fn only(source: &str, needle: &str) -> Hit {
@@ -994,12 +992,12 @@ mod tests {
         assert_eq!(hit.value(), "{ b: target }");
     }
 
-    // ── コメント（`SearchScope::ValuesAndComments`）────────────────────────
+    // ── コメント（`Query::including_comments`）────────────────────────
 
     fn with_comments(source: &str, needle: &str) -> Vec<Hit> {
         parse(source)
             .expect("読める")
-            .search(needle, SearchScope::ValuesAndComments)
+            .search(&Query::new(needle).including_comments())
     }
 
     fn sole(source: &str, needle: &str) -> Hit {
