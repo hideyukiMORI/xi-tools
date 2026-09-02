@@ -7,5 +7,9 @@ name = "scopegrep"
 version = "0.0.0"
 
 [[package]]
+name = "scopegrep-core"
+version = "0.0.0"
+
+[[package]]
 name = "xtask"
 version = "0.0.0"

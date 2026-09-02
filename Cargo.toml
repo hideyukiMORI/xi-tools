@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["scopegrep", "xtask"]
+members = ["scopegrep", "scopegrep-core", "xtask"]
 
 [workspace.package]
 edition = "2024"
