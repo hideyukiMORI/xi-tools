@@ -67,7 +67,9 @@ pub(crate) fn parse(line: &str, start: usize) -> Result<Option<MappingEntry>, Pa
     };
     let after_colon = key.colon().saturating_add(1_usize);
     let value_start = skip_spaces(rest, after_colon);
-    let absolute = start.saturating_add(value_start);
+    // タグ（`!override` 等）は値ではないので、ここで読み飛ばす（v1.1）。
+    // 後ろに何も残らなければ「空の値」になり、次の行の入れ子を受ける。
+    let absolute = scalar_value::skip_tag(line, start.saturating_add(value_start));
     let value = read_value(line, absolute)?;
     let comment = comment_of(line, absolute, &value);
     Ok(Some(MappingEntry::new(key.into_text(), value, comment)))

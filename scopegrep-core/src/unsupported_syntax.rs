@@ -12,16 +12,17 @@ pub enum UnsupportedSyntax {
     Anchor,
     /// エイリアス `*name`。
     Alias,
-    /// タグ `!!str` / `!x`。
-    Tag,
     /// マージキー `<<:`。
     MergeKey,
     /// 複合キー `? `。
     ComplexKey,
     /// 複数行にまたがるスカラー（プレーンの継続行・閉じないクォート）。
     MultiLineScalar,
-    /// 複数行にまたがるフロー記法（`[` や `{` が行内で閉じない）。
-    MultiLineFlow,
+    /// 閉じていないフロー記法（`[` や `{` が最後まで閉じない）。
+    ///
+    /// 🔑 **複数行にまたがること自体は読める**（v1.1）。読めないのは、
+    /// 桁が親まで戻っても・ファイルが終わっても閉じ括弧が来ない場合である。
+    UnclosedFlow,
     /// 2つ目の `---` / `...`（複数ドキュメント）。
     MultipleDocuments,
     /// `%YAML` などのディレクティブ。
@@ -35,11 +36,10 @@ impl fmt::Display for UnsupportedSyntax {
         let text = match *self {
             Self::Anchor => "アンカー（&name）",
             Self::Alias => "エイリアス（*name）",
-            Self::Tag => "タグ（!name）",
             Self::MergeKey => "マージキー（<<:）",
             Self::ComplexKey => "複合キー（? ）",
             Self::MultiLineScalar => "複数行にまたがるスカラー",
-            Self::MultiLineFlow => "行内で閉じないフロー記法",
+            Self::UnclosedFlow => "閉じていないフロー記法（[ や { が閉じない）",
             Self::MultipleDocuments => "複数ドキュメント（2つ目の --- / ...）",
             Self::Directive => "ディレクティブ（%YAML 等）",
             Self::NestedInlineSequence => "1行に入れ子で書かれたシーケンス（- - a）",

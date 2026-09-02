@@ -27,10 +27,11 @@
 //!
 //! 読めるのは**手で書く YAML の部分集合**である。ブロックマッピング・ブロックシーケンス・
 //! 1行スカラー（プレーン / `'…'` / `"…"`）・ブロックスカラー（`|` / `>`）・
-//! 1行のフロー記法・コメント・先頭の `---` を読む。
+//! フロー記法（複数行にまたがるものを含む）・タグ（`!override` 等。読み飛ばす）・
+//! コメント・先頭の `---` を読む。
 //!
-//! アンカー・エイリアス・タグ・マージキー・複数行のスカラーやフロー記法・複数ドキュメントは
-//! **読めない**。🔴 **黙って誤読せず [`parse_error::ParseError`] にする。**
+//! アンカー・エイリアス・マージキー・複数行のスカラー・閉じないフロー記法・
+//! 複数ドキュメントは**読めない**。🔴 **黙って誤読せず [`parse_error::ParseError`] にする。**
 //! 部分集合の正本と、この設計に至った理由（却下した案を含む）は
 //! [設計メモ](https://github.com/hideyukiMORI/xi-tools/blob/main/docs/design/scopegrep.md)にある。
 //!
@@ -57,12 +58,16 @@ pub mod unsupported_syntax;
 
 mod block_header;
 mod comment_line;
+mod continuation;
 mod entry_value;
+mod flow_scan;
+mod flow_state;
 mod frame;
 mod frame_kind;
 mod key_span;
 mod mapping_entry;
 mod pending_block;
+mod pending_flow;
 mod scalar_line;
 mod scalar_value;
 mod scanner;
