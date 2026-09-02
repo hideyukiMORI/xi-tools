@@ -15,17 +15,30 @@ use crate::unsupported_syntax::UnsupportedSyntax;
 pub(crate) struct MappingEntry {
     key: String,
     value: EntryValue,
+    comment: Option<usize>,
 }
 
 impl MappingEntry {
-    /// キーと値から作る。
-    pub(crate) fn new(key: String, value: EntryValue) -> Self {
-        Self { key, value }
+    /// キー・値・行末コメントの位置（行頭からのバイト）から作る。
+    pub(crate) fn new(key: String, value: EntryValue, comment: Option<usize>) -> Self {
+        Self {
+            key,
+            value,
+            comment,
+        }
     }
 
     /// キー。クォートは外すが、中身のエスケープは解かない。
     pub(crate) fn key(&self) -> &str {
         &self.key
+    }
+
+    /// この行の行末コメントの `#` の位置（行頭からのバイト）。
+    ///
+    /// 🔑 コメントは**値ではなく行**に属する。`key:` のように値が空でも、
+    /// `key: |` のようにブロックの始まりでも、行末コメントは同じように書ける。
+    pub(crate) fn comment(&self) -> Option<usize> {
+        self.comment
     }
 
     /// 値を取り出す。
@@ -54,8 +67,10 @@ pub(crate) fn parse(line: &str, start: usize) -> Result<Option<MappingEntry>, Pa
     };
     let after_colon = key.colon().saturating_add(1_usize);
     let value_start = skip_spaces(rest, after_colon);
-    let value = read_value(line, start.saturating_add(value_start))?;
-    Ok(Some(MappingEntry::new(key.into_text(), value)))
+    let absolute = start.saturating_add(value_start);
+    let value = read_value(line, absolute)?;
+    let comment = comment_of(line, absolute, &value);
+    Ok(Some(MappingEntry::new(key.into_text(), value, comment)))
 }
 
 /// `:` の右側を読む。
@@ -68,6 +83,20 @@ fn read_value(line: &str, absolute: usize) -> Result<EntryValue, ParseErrorKind>
         return block_header::parse(tail).map(EntryValue::Block);
     }
     scalar_value::parse(line, absolute).map(EntryValue::Scalar)
+}
+
+/// この項目の行末コメントの `#` の位置（行頭からのバイト）。
+///
+/// 値の種類ごとに、どこから先がコメントかを知っている場所が違う。
+/// 🔑 ブロックの指示子（`|2-`）に使える文字は数字と `+` `-` だけなので、
+/// [`block_header::parse`] が通った行に残る `#` は**必ずコメントの始まり**である。
+fn comment_of(line: &str, absolute: usize, value: &EntryValue) -> Option<usize> {
+    let tail = line.get(absolute..)?;
+    match *value {
+        EntryValue::Empty => tail.starts_with('#').then_some(absolute),
+        EntryValue::Scalar(ref scalar) => scalar.comment(),
+        EntryValue::Block(_) => tail.find('#').map(|at| absolute.saturating_add(at)),
+    }
 }
 
 /// キーを読む。プレーンか、`"…"` / `'…'` のどちらか。
@@ -151,7 +180,27 @@ mod tests {
         let entry = parse("on:", 0_usize)
             .expect("読めるはず")
             .expect("項目である");
+        assert_eq!(entry.comment(), None);
         assert!(matches!(entry.into_value(), EntryValue::Empty));
+    }
+
+    /// 行末コメントは、値が空でもブロックの始まりでも同じように見つかる。
+    #[test]
+    fn a_trailing_comment_is_located_for_every_kind_of_value() {
+        let scalar = parse("run: npm ci # note", 0_usize)
+            .expect("読めるはず")
+            .expect("項目である");
+        assert_eq!(scalar.comment(), Some(12_usize));
+
+        let empty = parse("on: # note", 0_usize)
+            .expect("読めるはず")
+            .expect("項目である");
+        assert_eq!(empty.comment(), Some(4_usize));
+
+        let block = parse("run: |2- # note", 0_usize)
+            .expect("読めるはず")
+            .expect("項目である");
+        assert_eq!(block.comment(), Some(9_usize));
     }
 
     #[test]

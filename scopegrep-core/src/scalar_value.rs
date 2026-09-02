@@ -8,20 +8,29 @@ use crate::malformed_input::MalformedInput;
 use crate::parse_error_kind::ParseErrorKind;
 use crate::unsupported_syntax::UnsupportedSyntax;
 
-/// 読み取ったスカラー値と、その先頭の桁。
+/// 読み取ったスカラー値と、その先頭の桁と、後ろに続く行末コメントの位置。
 ///
 /// 値は**原文のまま**持つ（クォートの中身をエスケープ解除しない）。
 /// 人が `grep` で見る文字列と同じものに当たることを優先する（設計メモ「検索の意味」）。
+///
+/// 🔑 行末コメントの位置を**ここで返す**。値の終わりを知っているのは値を読んだ側だけで、
+/// 後から行を見直して `#` を探すと、`run: echo "a # b"` のような
+/// 「プレーンスカラーの中のクォートらしきもの」で読み方が食い違う。
 #[derive(Debug, Clone)]
 pub(crate) struct ScalarValue {
     text: String,
     column: Column,
+    comment: Option<usize>,
 }
 
 impl ScalarValue {
-    /// 値と桁から作る。
-    pub(crate) fn new(text: String, column: Column) -> Self {
-        Self { text, column }
+    /// 値・桁・行末コメントの位置（行頭からのバイト）から作る。
+    pub(crate) fn new(text: String, column: Column, comment: Option<usize>) -> Self {
+        Self {
+            text,
+            column,
+            comment,
+        }
     }
 
     /// 原文のままの値。
@@ -32,6 +41,11 @@ impl ScalarValue {
     /// 値の先頭の桁。
     pub(crate) fn column(&self) -> Column {
         self.column
+    }
+
+    /// この値の後ろに続く行末コメントの `#` の位置（行頭からのバイト）。
+    pub(crate) fn comment(&self) -> Option<usize> {
+        self.comment
     }
 
     /// 値を取り出す。
@@ -49,60 +63,69 @@ pub(crate) fn parse(line: &str, start: usize) -> Result<ScalarValue, ParseErrorK
     let rest = line.get(start..).unwrap_or("");
     let column = Column::after(line.get(..start).unwrap_or("").chars().count());
     let Some(first) = rest.chars().next() else {
-        return Ok(ScalarValue::new(String::new(), column));
+        return Ok(ScalarValue::new(String::new(), column, None));
     };
-    match first {
-        '&' => Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Anchor)),
-        '*' => Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Alias)),
-        '!' => Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Tag)),
-        '"' | '\'' => bounded(
-            rest,
-            scan_quoted(rest, first),
-            column,
-            UnsupportedSyntax::MultiLineScalar,
-        ),
-        '[' | '{' => bounded(
-            rest,
-            scan_flow(rest),
-            column,
-            UnsupportedSyntax::MultiLineFlow,
-        ),
-        _ => Ok(ScalarValue::new(plain(rest), column)),
-    }
+    let end = match first {
+        '&' => return Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Anchor)),
+        '*' => return Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Alias)),
+        '!' => return Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Tag)),
+        '"' | '\'' => closing(scan_quoted(rest, first), UnsupportedSyntax::MultiLineScalar)?,
+        '[' | '{' => closing(scan_flow(rest), UnsupportedSyntax::MultiLineFlow)?,
+        _ => return Ok(plain(rest, column, start)),
+    };
+    bounded(rest, end, column, start)
 }
 
-/// 閉じ位置が分かっている値を切り出す。閉じていなければ `missing` を返す。
+/// 閉じ位置を取り出す。閉じていなければ `missing` を返す。
+fn closing(end: Option<usize>, missing: UnsupportedSyntax) -> Result<usize, ParseErrorKind> {
+    end.ok_or(ParseErrorKind::Unsupported(missing))
+}
+
+/// 閉じ位置が分かっている値を切り出す。**後ろに許すのは空白と行末コメントだけ**である。
 fn bounded(
     rest: &str,
-    end: Option<usize>,
+    end: usize,
     column: Column,
-    missing: UnsupportedSyntax,
+    start: usize,
 ) -> Result<ScalarValue, ParseErrorKind> {
-    let Some(end) = end else {
-        return Err(ParseErrorKind::Unsupported(missing));
-    };
-    let tail = rest.get(end..).unwrap_or("").trim();
+    let after = rest.get(end..).unwrap_or("");
+    let tail = after.trim();
     if !tail.is_empty() && !tail.starts_with('#') {
         return Err(ParseErrorKind::Malformed(MalformedInput::TrailingContent));
     }
+    let spaces = after.len().saturating_sub(after.trim_start().len());
+    let at = start.saturating_add(end).saturating_add(spaces);
     Ok(ScalarValue::new(
         rest.get(..end).unwrap_or("").to_owned(),
         column,
+        tail.starts_with('#').then_some(at),
     ))
 }
 
 /// プレーンスカラー。**空白の直後の `#` から行末まで**はコメントなので落とす。
-fn plain(rest: &str) -> String {
-    let mut cut = rest.len();
+fn plain(rest: &str, column: Column, start: usize) -> ScalarValue {
+    let cut = comment_start(rest);
+    let text = rest
+        .get(..cut.unwrap_or(rest.len()))
+        .unwrap_or("")
+        .trim_end()
+        .to_owned();
+    ScalarValue::new(text, column, cut.map(|at| start.saturating_add(at)))
+}
+
+/// プレーンスカラーを終わらせる `#` の位置（`rest` からの相対）。
+///
+/// 🔴 空白の直後の `#` だけがコメントである。`b#c` の `#` は値の一部であり、
+/// ここを緩めると URL やフラグメントを含む値が切れる。
+fn comment_start(rest: &str) -> Option<usize> {
     let mut previous: Option<char> = None;
     for (index, c) in rest.char_indices() {
         if c == '#' && previous.is_none_or(char::is_whitespace) {
-            cut = index;
-            break;
+            return Some(index);
         }
         previous = Some(c);
     }
-    rest.get(..cut).unwrap_or("").trim_end().to_owned()
+    None
 }
 
 /// クォートを**1枚だけ**外す。中身のエスケープは解かない。
@@ -215,18 +238,34 @@ mod tests {
         let value = parse("a: b c # note", 3_usize).expect("プレーンスカラー");
         assert_eq!(value.text(), "b c");
         assert_eq!(value.column().get(), 4_u32);
+        // 値からは落とすが、位置は捨てない（`--comments` はここから出る）。
+        assert_eq!(value.comment(), Some(7_usize));
     }
 
     #[test]
     fn plain_keeps_a_hash_without_leading_space() {
         let value = parse("a: b#c", 3_usize).expect("プレーンスカラー");
         assert_eq!(value.text(), "b#c");
+        assert_eq!(value.comment(), None);
     }
 
     #[test]
     fn quoted_keeps_the_quotes_and_the_hash() {
         let value = parse("a: \"b # c\"", 3_usize).expect("クォートされたスカラー");
         assert_eq!(value.text(), "\"b # c\"");
+        assert_eq!(value.comment(), None);
+    }
+
+    /// クォートやフロー記法の**後ろ**に来た `#` は行末コメントである。
+    #[test]
+    fn a_comment_after_a_closed_value_is_located() {
+        let quoted = parse("a: \"b\"  # note", 3_usize).expect("クォートされたスカラー");
+        assert_eq!(quoted.text(), "\"b\"");
+        assert_eq!(quoted.comment(), Some(8_usize));
+
+        let flow = parse("a: [x] # note", 3_usize).expect("フロー記法");
+        assert_eq!(flow.text(), "[x]");
+        assert_eq!(flow.comment(), Some(7_usize));
     }
 
     #[test]

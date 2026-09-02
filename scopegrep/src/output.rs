@@ -21,7 +21,7 @@ const HELP: &str = "\
 scopegrep — ヒットした値が、構造のどこに属するかを返す
 
 usage:
-    scopegrep [--json] <needle> <path>...
+    scopegrep [--json] [--comments] <needle> <path>...
     scopegrep --help | --version
 
 arguments:
@@ -31,6 +31,7 @@ arguments:
 
 options:
     --json          1ヒット1行の JSON Lines で出す
+    --comments      コメント内の一致も、コメントだと明示して返す
     --              以降を旗として解釈しない
     -h, --help      この使い方を出す
     -V, --version   版を出す

@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 
 use crate::block_header::BlockHeader;
 use crate::column::Column;
+use crate::comment_line::CommentLine;
 use crate::document::Document;
 use crate::entry_value::EntryValue;
 use crate::frame::Frame;
@@ -31,6 +32,7 @@ use crate::unsupported_syntax::UnsupportedSyntax;
 pub(crate) struct Scanner {
     stack: Vec<Frame>,
     scalars: Vec<ScalarLine>,
+    comments: Vec<CommentLine>,
     labels: BTreeMap<String, String>,
     block: Option<PendingBlock>,
     line: LineNumber,
@@ -44,6 +46,7 @@ impl Scanner {
         Self {
             stack: Vec::new(),
             scalars: Vec::new(),
+            comments: Vec::new(),
             labels: BTreeMap::new(),
             block: None,
             line: LineNumber::first(),
@@ -67,10 +70,18 @@ impl Scanner {
         let Some(indent) = self.indentation(line)? else {
             return Ok(());
         };
+        let content = line.get(indent..).unwrap_or("");
+        if content.starts_with('#') {
+            self.record_comment(indent, content);
+            return Ok(());
+        }
         self.structure(line, indent)
     }
 
-    /// 桁を測る。空行とコメント行は `None`（読み飛ばす）。
+    /// 桁を測る。空行だけが `None`（読み飛ばす）。
+    ///
+    /// 🔑 コメント行の桁も返す。**コメントを捨てないため**に、行全体のコメントも
+    /// 「どの桁に書かれたか」を知る必要がある（所属はそこから決まる）。
     fn indentation(&self, line: &str) -> Result<Option<usize>, ParseError> {
         if line.trim().is_empty() {
             return Ok(None);
@@ -84,9 +95,6 @@ impl Scanner {
             return Err(self.error(ParseErrorKind::Malformed(
                 MalformedInput::InconsistentIndentation,
             )));
-        }
-        if line.get(indent..).unwrap_or("").starts_with('#') {
-            return Ok(None);
         }
         Ok(Some(indent))
     }
@@ -109,7 +117,10 @@ impl Scanner {
             )));
         };
         self.align(indent, false)?;
-        self.apply_entry(entry, indent)
+        let comment = entry.comment();
+        self.apply_entry(entry, indent)?;
+        self.record_trailing(line, comment);
+        Ok(())
     }
 
     /// ドキュメント境界とディレクティブ。読み飛ばしたら `true`。
@@ -195,6 +206,8 @@ impl Scanner {
         let rest = line.get(start..).unwrap_or("");
         if rest.is_empty() || rest.starts_with('#') {
             self.start_item(true);
+            // `-` だけの行に付いたコメントは、始まったばかりの要素に属する。
+            self.record_trailing(line, (!rest.is_empty()).then_some(start));
             return Ok(());
         }
         if rest == "-" || rest.starts_with("- ") {
@@ -206,10 +219,15 @@ impl Scanner {
         let found = mapping_entry::parse(line, start).map_err(|kind| self.error(kind))?;
         if let Some(entry) = found {
             self.stack.push(Frame::mapping(start));
-            return self.apply_entry(entry, start);
+            let comment = entry.comment();
+            self.apply_entry(entry, start)?;
+            self.record_trailing(line, comment);
+            return Ok(());
         }
         let value = scalar_value::parse(line, start).map_err(|kind| self.error(kind))?;
+        let comment = value.comment();
         self.record(value);
+        self.record_trailing(line, comment);
         Ok(())
     }
 
@@ -284,6 +302,82 @@ impl Scanner {
     /// 今の所属パス。
     fn current_path(&self) -> ScopePath {
         ScopePath::new(self.stack.iter().filter_map(Frame::segment).collect())
+    }
+
+    /// 行全体のコメントの所属パス。
+    ///
+    /// 規則は機械的である: **その桁で開いている最も内側のコンテナ**に付ける。
+    /// 桁 `indent` の段はその桁に項目が並ぶコンテナなので、パスに足すのは
+    /// **その段より外側の要素だけ**である。
+    ///
+    /// 🔴 「このコメントは誰の説明か」は推測しない。設計メモ「D-2 実測」のとおり、
+    /// 木で持つ実装は**直前の兄弟に付けて取り違える**（29〜30 行目のコメントは
+    /// `steps[3]` の説明だが、`tree-sitter-yaml` の木では `steps[2]` に付く）。
+    ///
+    /// 桁が**その段より深い**ときは、まだ段になっていない入れ子の中である。
+    /// `steps:` の直後・最初の要素より前に書かれたコメントがこれで、
+    /// 段が開くのを待たずに `steps` の中として扱う。
+    /// 🔴 ここを見落とすと、**同じ位置のコメントが「最初の要素の前か後か」で
+    /// 違う所属になる**（段は次の行を読むまで積まれないため）。
+    ///
+    /// どの段の桁とも一致しない桁（既に開いているコンテナの項目の桁より浅く、
+    /// 親より深い）は**より浅い方＝外側**に付ける。深い方に寄せると、
+    /// その桁には何も無いコンテナの中にコメントを置くことになる。
+    fn comment_path(&self, indent: usize) -> ScopePath {
+        let depth = self
+            .stack
+            .iter()
+            .rposition(|frame| frame.indent() <= indent)
+            .map_or(0_usize, |at| self.reached_depth(at, indent));
+        ScopePath::new(
+            self.stack
+                .iter()
+                .take(depth)
+                .filter_map(Frame::segment)
+                .collect(),
+        )
+    }
+
+    /// コメントの所属パスに使う段数。`at` はその桁で見つけた最も内側の段である。
+    ///
+    /// その段が入れ子を待っていて（`key:` の直後）、コメントがそれより深い桁にあるなら、
+    /// **その項目の中**である。段はまだ積まれていないので、ここで1段ぶん数える。
+    fn reached_depth(&self, at: usize, indent: usize) -> usize {
+        let pending = self
+            .stack
+            .get(at)
+            .is_some_and(|frame| frame.is_open() && frame.indent() < indent);
+        if pending {
+            at.saturating_add(1_usize)
+        } else {
+            at
+        }
+    }
+
+    /// 行全体のコメントを表に足す。`text` は `#` から行末までの原文である。
+    fn record_comment(&mut self, indent: usize, text: &str) {
+        let path = self.comment_path(indent);
+        // 桁の前は空白だけであることを [`Scanner::indentation`] が確かめている。
+        self.comments.push(CommentLine::new(
+            path,
+            self.line,
+            Column::after(indent),
+            text.to_owned(),
+        ));
+    }
+
+    /// 値の後ろの行末コメントを表に足す。`at` は `#` の位置（行頭からのバイト）。
+    ///
+    /// 所属は**その値のパス**である（行全体のコメントと違い、書かれた桁ではない）。
+    fn record_trailing(&mut self, line: &str, at: Option<usize>) {
+        let Some(at) = at else {
+            return;
+        };
+        let path = self.current_path();
+        let column = Column::after(line.get(..at).unwrap_or("").chars().count());
+        let text = line.get(at..).unwrap_or("").to_owned();
+        self.comments
+            .push(CommentLine::new(path, self.line, column, text));
     }
 
     /// スカラー1行を表に足す。
@@ -362,6 +456,10 @@ impl Scanner {
                 .into_iter()
                 .map(|scalar| scalar.with_labels(&labels))
                 .collect(),
+            self.comments
+                .into_iter()
+                .map(|comment| comment.with_labels(&labels))
+                .collect(),
         )
     }
 }
@@ -418,16 +516,20 @@ pub(crate) fn run(source: &str) -> Result<Document, ParseError> {
 #[cfg(test)]
 mod tests {
     use crate::hit::Hit;
+    use crate::hit_kind::HitKind;
     use crate::malformed_input::MalformedInput;
     use crate::parse;
     use crate::parse_error::ParseError;
     use crate::parse_error_kind::ParseErrorKind;
+    use crate::search_scope::SearchScope;
     use crate::unsupported_syntax::UnsupportedSyntax;
     use alloc::format;
     use alloc::vec::Vec;
 
     fn hits(source: &str, needle: &str) -> Vec<Hit> {
-        parse(source).expect("読める").search(needle)
+        parse(source)
+            .expect("読める")
+            .search(needle, SearchScope::Values)
     }
 
     fn only(source: &str, needle: &str) -> Hit {
@@ -598,6 +700,131 @@ mod tests {
 
         let single = "steps:\n  - name: 'A ''b'''\n    if: target\n";
         assert_eq!(only(single, "target").path().label(), Some("A ''b''"));
+    }
+
+    // ── コメント（`SearchScope::ValuesAndComments`）────────────────────────
+
+    fn with_comments(source: &str, needle: &str) -> Vec<Hit> {
+        parse(source)
+            .expect("読める")
+            .search(needle, SearchScope::ValuesAndComments)
+    }
+
+    fn sole(source: &str, needle: &str) -> Hit {
+        let found = with_comments(source, needle);
+        assert_eq!(found.len(), 1_usize, "ヒットは1件のはず");
+        found.into_iter().next().expect("1件ある")
+    }
+
+    /// 🔴 既定では今までどおり返さない。**旗を付けたときだけ**種別付きで返る。
+    #[test]
+    fn a_comment_is_only_returned_when_the_scope_asks_for_it() {
+        assert!(hits("# target\na: b\n", "target").is_empty());
+        assert_eq!(sole("# target\na: b\n", "target").kind(), HitKind::Comment);
+    }
+
+    /// 何も開いていない桁のコメントは**文書全体**に属する。
+    /// JSON Pointer では空文字列が文書全体を指す（RFC 6901）。
+    #[test]
+    fn a_comment_at_the_root_belongs_to_the_whole_document() {
+        let hit = sole("# target\na: b\n", "target");
+        assert_eq!(hit.path().pointer(), "");
+        assert_eq!(format!("{}", hit.path()), "");
+        assert_eq!(hit.line().get(), 1_u32);
+        assert_eq!(hit.column().get(), 3_u32);
+        assert_eq!(hit.value(), "# target");
+    }
+
+    /// その桁で開いているコンテナに属する。要素の桁（`- ` の桁）ならシーケンス自身。
+    #[test]
+    fn a_comment_belongs_to_the_container_open_at_its_indent() {
+        let source = "jobs:\n  build:\n    steps:\n      # target\n      - name: x\n";
+        let hit = sole(source, "target");
+        assert_eq!(hit.path().pointer(), "/jobs/build/steps");
+        assert_eq!(format!("{}", hit.path()), "jobs.build.steps");
+    }
+
+    /// 要素の中のキーの桁に書かれたコメントは、その要素に属する。
+    /// ラベルは値のヒットと同じ表から当てる（同じ場所を2通りに呼ばない）。
+    #[test]
+    fn a_comment_inside_an_element_belongs_to_that_element() {
+        let source = "steps:\n  - name: A\n    # target\n    run: x\n";
+        let hit = sole(source, "target");
+        assert_eq!(hit.path().pointer(), "/steps/0");
+        assert_eq!(format!("{}", hit.path()), "steps[0] \"A\"");
+    }
+
+    /// 🔴 段は次の行を読むまで積まれない。素朴に実装すると、**同じ位置のコメントが
+    /// 「最初の要素の前」と「要素の間」で違う所属になる**。同じでなければならない。
+    #[test]
+    fn a_comment_before_the_first_item_belongs_where_one_between_items_does() {
+        let before = sole("steps:\n  # target\n  - name: A\n", "target");
+        let between = sole("steps:\n  - name: A\n  # target\n  - name: B\n", "target");
+        assert_eq!(before.path().pointer(), "/steps");
+        assert_eq!(between.path().pointer(), "/steps");
+    }
+
+    /// 🔑 どのコンテナの桁とも一致しない桁は**より浅い方＝外側**に付ける。
+    /// 深い方に寄せると、その桁ではまだ開いていない入れ子の中に置くことになる。
+    #[test]
+    fn a_comment_between_two_levels_belongs_to_the_outer_one() {
+        let hit = sole("a:\n    b: 1\n   # target\n", "target");
+        assert_eq!(hit.path().pointer(), "");
+    }
+
+    /// 行末コメントは**その値のパス**に属する（書かれた桁ではない）。
+    #[test]
+    fn a_trailing_comment_belongs_to_the_value_it_follows() {
+        let hit = sole("steps:\n  - name: A\n    run: x # target\n", "target");
+        assert_eq!(hit.path().pointer(), "/steps/0/run");
+        assert_eq!(hit.line().get(), 3_u32);
+        // 桁は**一致の先頭**である（`#` の位置ではない）。
+        assert_eq!(hit.column().get(), 14_u32);
+        assert_eq!(hit.value(), "# target");
+    }
+
+    /// 値が空でも、ブロックの始まりでも、行末コメントは同じように返る。
+    #[test]
+    fn a_trailing_comment_is_found_after_every_kind_of_value() {
+        assert_eq!(sole("on: # target\n", "target").path().pointer(), "/on");
+        assert_eq!(
+            sole("run: | # target\n  echo\n", "target").path().pointer(),
+            "/run"
+        );
+        assert_eq!(
+            sole("on:\n  - # target\n", "target").path().pointer(),
+            "/on/0"
+        );
+    }
+
+    /// 🔴 ブロックスカラーの内容の `#` は**コメントではない**。値のままである。
+    #[test]
+    fn a_hash_inside_a_block_scalar_stays_a_value() {
+        let hit = sole("run: |\n  echo one # target\n", "target");
+        assert_eq!(hit.kind(), HitKind::Value);
+        assert_eq!(hit.value(), "echo one # target");
+    }
+
+    /// 値とコメントは別の表にあるが、返る並びは**行 → 桁**で1本にまとまる。
+    #[test]
+    fn values_and_comments_come_back_merged_in_source_order() {
+        let source = "# target 1\na: target 2 # target 3\nb: target 4\n";
+        let found = with_comments(source, "target");
+        let places: Vec<(u32, u32)> = found
+            .iter()
+            .map(|hit| (hit.line().get(), hit.column().get()))
+            .collect();
+        assert_eq!(places, [(1, 3), (2, 4), (2, 15), (3, 4)]);
+        let kinds: Vec<HitKind> = found.iter().map(Hit::kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                HitKind::Comment,
+                HitKind::Value,
+                HitKind::Comment,
+                HitKind::Value
+            ]
+        );
     }
 
     // ── 読めないもの ────────────────────────────────────────────────────────

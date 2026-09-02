@@ -1,9 +1,11 @@
 //! 引数の解析。**手書きである**（依存 0・ARC-004）。
 //!
 //! `clap` を使うと引数の形を宣言で書けるが、依存を1つ増やす ADR になる。
-//! この道具の引数は `[--json] <needle> <path>...` だけなので、まだ要らない。
+//! この道具の引数は `[--json] [--comments] <needle> <path>...` だけなので、まだ要らない。
 
 use std::path::PathBuf;
+
+use scopegrep_core::search_scope::SearchScope;
 
 use crate::argument::Argument;
 use crate::invocation::Invocation;
@@ -21,11 +23,13 @@ use crate::usage_error::UsageError;
 pub(crate) fn parse(arguments: &[String]) -> Result<Invocation, UsageError> {
     let (head, tail) = split_at_separator(arguments);
     let mut format = OutputFormat::Human;
+    let mut scope = SearchScope::Values;
     let mut positional: Vec<&str> = Vec::new();
 
     for argument in head {
         match Argument::read(argument) {
             Argument::Json => format = OutputFormat::Json,
+            Argument::Comments => scope = SearchScope::ValuesAndComments,
             Argument::Help => return Ok(Invocation::Help),
             Argument::Version => return Ok(Invocation::Version),
             Argument::Positional(text) => positional.push(text),
@@ -43,6 +47,7 @@ pub(crate) fn parse(arguments: &[String]) -> Result<Invocation, UsageError> {
         (*needle).to_owned(),
         places,
         format,
+        scope,
     )))
 }
 
@@ -62,6 +67,7 @@ mod tests {
     use crate::invocation::Invocation;
     use crate::options::Options;
     use crate::output_format::OutputFormat;
+    use scopegrep_core::search_scope::SearchScope;
     use std::path::PathBuf;
 
     fn words(arguments: &[&str]) -> Vec<String> {
@@ -96,6 +102,36 @@ mod tests {
             options(&["--json", "x", "a.yml"]).format(),
             OutputFormat::Json
         );
+    }
+
+    /// 既定はコメントを探さない。**旗を付けたときだけ**範囲が広がる。
+    #[test]
+    fn comments_are_off_unless_the_flag_is_given() {
+        assert_eq!(
+            options(&["x", "a.yml"]).scope(),
+            SearchScope::Values,
+            "既定でコメントを探している"
+        );
+        let found = options(&["x", "a.yml", "--comments"]);
+        assert_eq!(found.scope(), SearchScope::ValuesAndComments);
+        assert_eq!(found.format(), OutputFormat::Human);
+        assert_eq!(found.needle(), "x");
+    }
+
+    /// 2つの旗は独立していて、順序でも意味が変わらない。
+    #[test]
+    fn json_and_comments_are_independent() {
+        let found = options(&["--comments", "--json", "x", "a.yml"]);
+        assert_eq!(found.format(), OutputFormat::Json);
+        assert_eq!(found.scope(), SearchScope::ValuesAndComments);
+    }
+
+    /// `--` より後の `--comments` は needle かパスである。
+    #[test]
+    fn comments_after_the_separator_is_positional() {
+        let found = options(&["x", "--", "--comments"]);
+        assert_eq!(found.scope(), SearchScope::Values);
+        assert_eq!(found.paths(), [PathBuf::from("--comments")]);
     }
 
     /// 旗は `--` より前ならどこに書いてもよい。位置で意味が変わらない。

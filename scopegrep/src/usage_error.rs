@@ -12,6 +12,6 @@ pub(crate) struct UsageError;
 
 impl fmt::Display for UsageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("usage: scopegrep [--json] <needle> <path>...")
+        f.write_str("usage: scopegrep [--json] [--comments] <needle> <path>...")
     }
 }

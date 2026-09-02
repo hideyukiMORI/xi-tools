@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use scopegrep_core::search_scope::SearchScope;
+
 use crate::output_format::OutputFormat;
 
 /// 1回の検索を決める全て。**環境から読んだ値はここまでで止まる**（RS-015）。
@@ -10,15 +12,22 @@ pub(crate) struct Options {
     needle: String,
     paths: Vec<PathBuf>,
     format: OutputFormat,
+    scope: SearchScope,
 }
 
 impl Options {
-    /// 探す文字列・探すパス・出し方から作る。
-    pub(crate) fn new(needle: String, paths: Vec<PathBuf>, format: OutputFormat) -> Self {
+    /// 探す文字列・探すパス・出し方・探す範囲から作る。
+    pub(crate) fn new(
+        needle: String,
+        paths: Vec<PathBuf>,
+        format: OutputFormat,
+        scope: SearchScope,
+    ) -> Self {
         Self {
             needle,
             paths,
             format,
+            scope,
         }
     }
 
@@ -35,5 +44,10 @@ impl Options {
     /// 出力の形。
     pub(crate) fn format(&self) -> OutputFormat {
         self.format
+    }
+
+    /// 探す範囲。既定は値だけで、`--comments` でコメントも探す。
+    pub(crate) fn scope(&self) -> SearchScope {
+        self.scope
     }
 }

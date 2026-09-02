@@ -6,22 +6,40 @@
 use std::path::Path;
 
 use scopegrep_core::hit::Hit;
+use scopegrep_core::hit_kind::HitKind;
 
 /// 人向けの1行。`grep -n` と同じ `<file>:<line>:` で始める。
+///
+/// 🔴 コメントのヒットには `#comment` を必ず添える。**種別を落とすと、出力は
+/// 行ベースの検索と同じ「同じ重みで並んだ5行」に戻る**。
 pub(crate) fn human(file: &Path, hit: &Hit) -> String {
     format!(
         "{}:{}: {} = {}",
         file.display(),
         hit.line(),
-        hit.path(),
+        head(hit),
         hit.value()
     )
 }
 
-/// 機械向けの1行。**キーは常に7つ・この順**である（設計メモ D-4）。
+/// 所属と種別の見出し。
 ///
-/// `label` が無ければ `null` を置く。キーを落とすと、受け手が
-/// 「無い」と「そもそも出さない」を区別できなくなる。
+/// ルートに書かれたコメントは所属が空なので、`#comment` だけが残る
+/// （JSON Pointer の `""` が「文書全体」を指すのと同じ扱い・RFC 6901）。
+fn head(hit: &Hit) -> String {
+    let scope = format!("{}", hit.path());
+    match hit.kind() {
+        HitKind::Value => scope,
+        HitKind::Comment if scope.is_empty() => "#comment".to_owned(),
+        HitKind::Comment => format!("{scope} #comment"),
+    }
+}
+
+/// 機械向けの1行。**キーは常に8つ・この順**である（設計メモ D-4）。
+///
+/// `label` が無ければ `null` を置く。`kind` は `--comments` を付けていなくても
+/// 常に出る。キーを落とすと、受け手が「無い」と「そもそも出さない」を
+/// 区別できなくなる。
 pub(crate) fn json(file: &Path, hit: &Hit) -> String {
     let scope = hit.path();
     let label = match scope.label() {
@@ -29,15 +47,24 @@ pub(crate) fn json(file: &Path, hit: &Hit) -> String {
         None => "null".to_owned(),
     };
     format!(
-        "{{\"file\":{},\"line\":{},\"column\":{},\"pointer\":{},\"path\":{},\"label\":{},\"value\":{}}}",
+        "{{\"file\":{},\"line\":{},\"column\":{},\"pointer\":{},\"path\":{},\"label\":{},\"value\":{},\"kind\":{}}}",
         quote(&file.display().to_string()),
         hit.line(),
         hit.column(),
         quote(&scope.pointer()),
         quote(&format!("{scope}")),
         label,
-        quote(hit.value())
+        quote(hit.value()),
+        quote(kind(hit.kind()))
     )
+}
+
+/// 種別の機械向けの名前。
+fn kind(found: HitKind) -> &'static str {
+    match found {
+        HitKind::Value => "value",
+        HitKind::Comment => "comment",
+    }
 }
 
 /// RFC 8259 の文字列。**手書きで足りる**（`serde_json` は ADR になる）。
@@ -87,11 +114,16 @@ fn hex_digit(value: u32) -> char {
 mod tests {
     use super::{human, json, quote};
     use scopegrep_core::hit::Hit;
+    use scopegrep_core::search_scope::SearchScope;
     use std::path::Path;
 
     fn only(source: &str, needle: &str) -> Hit {
+        pick(source, needle, SearchScope::Values)
+    }
+
+    fn pick(source: &str, needle: &str, scope: SearchScope) -> Hit {
         let document = scopegrep_core::parse(source).expect("読めるはず");
-        let found = document.search(needle);
+        let found = document.search(needle, scope);
         assert_eq!(found.len(), 1, "ヒットは1件のはず");
         found.into_iter().next().expect("1件ある")
     }
@@ -105,14 +137,51 @@ mod tests {
         );
     }
 
+    /// コメントのヒットには `#comment` を添える。
     #[test]
-    fn a_json_line_has_seven_keys_in_a_fixed_order() {
+    fn a_comment_line_says_it_is_a_comment() {
+        let hit = pick(
+            "steps:\n  # target\n  - name: Build\n",
+            "target",
+            SearchScope::ValuesAndComments,
+        );
+        assert_eq!(
+            human(Path::new("a/b.yml"), &hit),
+            "a/b.yml:2: steps #comment = # target"
+        );
+    }
+
+    /// ルートに書かれたコメントは所属が空なので、`#comment` だけが残る。
+    #[test]
+    fn a_comment_at_the_root_has_no_path_before_the_marker() {
+        let hit = pick("# target\na: b\n", "target", SearchScope::ValuesAndComments);
+        assert_eq!(
+            human(Path::new("a/b.yml"), &hit),
+            "a/b.yml:1: #comment = # target"
+        );
+    }
+
+    #[test]
+    fn a_json_line_has_eight_keys_in_a_fixed_order() {
         let hit = only("steps:\n  - name: Build\n    if: target\n", "target");
         assert_eq!(
             json(Path::new("a/b.yml"), &hit),
             "{\"file\":\"a/b.yml\",\"line\":3,\"column\":9,\
              \"pointer\":\"/steps/0/if\",\"path\":\"steps[0] \\\"Build\\\" .if\",\
-             \"label\":\"Build\",\"value\":\"target\"}"
+             \"label\":\"Build\",\"value\":\"target\",\"kind\":\"value\"}"
+        );
+    }
+
+    /// 🔑 `kind` は旗の有無によらず常に出る。キーの数が入力で変わると、
+    /// 受け手が「今回は出ていないだけ」と「そういう値だった」を区別できない。
+    #[test]
+    fn a_comment_hit_is_marked_in_json() {
+        let hit = pick("# target\na: b\n", "target", SearchScope::ValuesAndComments);
+        assert_eq!(
+            json(Path::new("a/b.yml"), &hit),
+            "{\"file\":\"a/b.yml\",\"line\":1,\"column\":3,\
+             \"pointer\":\"\",\"path\":\"\",\
+             \"label\":null,\"value\":\"# target\",\"kind\":\"comment\"}"
         );
     }
 
