@@ -114,16 +114,16 @@ fn hex_digit(value: u32) -> char {
 mod tests {
     use super::{human, json, quote};
     use scopegrep_core::hit::Hit;
-    use scopegrep_core::search_scope::SearchScope;
+    use scopegrep_core::query::Query;
     use std::path::Path;
 
     fn only(source: &str, needle: &str) -> Hit {
-        pick(source, needle, SearchScope::Values)
+        pick(source, &Query::new(needle))
     }
 
-    fn pick(source: &str, needle: &str, scope: SearchScope) -> Hit {
+    fn pick(source: &str, query: &Query) -> Hit {
         let document = scopegrep_core::parse(source).expect("読めるはず");
-        let found = document.search(needle, scope);
+        let found = document.search(query);
         assert_eq!(found.len(), 1, "ヒットは1件のはず");
         found.into_iter().next().expect("1件ある")
     }
@@ -142,8 +142,7 @@ mod tests {
     fn a_comment_line_says_it_is_a_comment() {
         let hit = pick(
             "steps:\n  # target\n  - name: Build\n",
-            "target",
-            SearchScope::ValuesAndComments,
+            &Query::new("target").including_comments(),
         );
         assert_eq!(
             human(Path::new("a/b.yml"), &hit),
@@ -154,7 +153,10 @@ mod tests {
     /// ルートに書かれたコメントは所属が空なので、`#comment` だけが残る。
     #[test]
     fn a_comment_at_the_root_has_no_path_before_the_marker() {
-        let hit = pick("# target\na: b\n", "target", SearchScope::ValuesAndComments);
+        let hit = pick(
+            "# target\na: b\n",
+            &Query::new("target").including_comments(),
+        );
         assert_eq!(
             human(Path::new("a/b.yml"), &hit),
             "a/b.yml:1: #comment = # target"
@@ -176,7 +178,10 @@ mod tests {
     /// 受け手が「今回は出ていないだけ」と「そういう値だった」を区別できない。
     #[test]
     fn a_comment_hit_is_marked_in_json() {
-        let hit = pick("# target\na: b\n", "target", SearchScope::ValuesAndComments);
+        let hit = pick(
+            "# target\na: b\n",
+            &Query::new("target").including_comments(),
+        );
         assert_eq!(
             json(Path::new("a/b.yml"), &hit),
             "{\"file\":\"a/b.yml\",\"line\":1,\"column\":3,\

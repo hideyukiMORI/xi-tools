@@ -72,6 +72,39 @@ scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload 
 `scopegrep/tests/readme.rs` が `make check` のたびにコマンドを実行し、
 続く行と**完全一致**することを確かめます（一致しなければテストが落ちます）。
 
+### 使い方
+
+```
+scopegrep [-i] [--json] [--comments] [--scope <pattern>] <needle> [<path>...]
+```
+
+**`--scope` は所属で絞ります。** 検索語ではなく**構造**で引けるので、
+「全ステップの `run` を並べる」のような、`grep` では書けない問いに答えられます
+（needle を空にすると、その場所の値が全部並びます）。
+
+```console
+$ scopegrep --scope '/jobs/*/steps/*/run' '' scopegrep-core/testdata/
+scopegrep-core/testdata/workflow-with-comment.yml:24: jobs.frontend-check.steps[1] "Install" .run = npm ci
+scopegrep-core/testdata/workflow-with-comment.yml:27: jobs.frontend-check.steps[2] "Unit tests" .run = npm test
+scopegrep-core/testdata/workflow-with-comment.yml:34: jobs.frontend-check.steps[3] "Audit (fail on high/critical)" .run = npm audit --audit-level=high
+scopegrep-core/testdata/workflow-with-comment.yml:42: jobs.e2e.steps[1] "Run Playwright" .run = npx playwright test
+```
+
+パターンは出力と同じ JSON Pointer の形で書きます。`*` は**ちょうど1セグメント**、
+`**` は**0 個以上**（`/services/**/image` はどの深さの `image` にも当たります）。
+それ以外は生のキー／索引と完全一致で、**部分一致のグロブはありません**（`*` の意味を一つに保つため）。
+所属パス**全体**との一致を見ます。読めないパターンは黙って直さず、理由を言って終了コード 2 で落ちます。
+
+- **`-i` / `--ignore-case`** — 大文字小文字を無視して照合します。
+  列は**原文の一致位置**のままです（小文字化した文字列の上で数えると、
+  `İ` のように小文字が2文字になる字を含む行だけ列がずれるため）
+- **パスの省略** — `scopegrep <needle>` だけで今いる場所を再帰します。
+  表示に `./` は付きません。明示的に `.` を渡したときは付きます（`grep -rn x .` と同じ）
+- **依存ディレクトリは掘りません** — `.git` `node_modules` `vendor` `target` `.venv`。
+  手元の実測（2026-09-02）では自前の `.yml` / `.yaml` が 188 件なのに対し
+  `node_modules` 配下に 3,206 件・`vendor` 配下に 3,837 件あり、掘ると出力のほぼ全部が
+  他人のファイルになります。**名指しされたパスは除外しません**（`scopegrep x node_modules/foo/` は読みます）
+
 ### 設計上の判断
 
 - **コメント内のヒットを既定では返さない。** 行ではなく構造を読むので、

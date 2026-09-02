@@ -10,6 +10,10 @@ pub(crate) enum Argument<'a> {
     Json,
     /// `--comments`。
     Comments,
+    /// `-i` / `--ignore-case`。
+    IgnoreCase,
+    /// `--scope`。**次の引数がパターンである**（値を伴う唯一の旗）。
+    Scope,
     /// `-h` / `--help`。
     Help,
     /// `-V` / `--version`。
@@ -31,6 +35,14 @@ impl<'a> Argument<'a> {
         }
         if text == "--comments" {
             return Self::Comments;
+        }
+        if text == "-i" || text == "--ignore-case" {
+            return Self::IgnoreCase;
+        }
+        // 🔑 `--scope=<pattern>` は受けない。同じ事を書く形が2つあると、
+        //    どちらが正かを覚える必要が出る。書き方は「旗の次に値」の一つだけ。
+        if text == "--scope" {
+            return Self::Scope;
         }
         if text == "-h" || text == "--help" {
             return Self::Help;

@@ -6,6 +6,7 @@ use alloc::string::String;
 use crate::column::Column;
 use crate::hit::Hit;
 use crate::line_number::LineNumber;
+use crate::query::Query;
 use crate::scope_path::ScopePath;
 
 /// コメント1件と、その所属。
@@ -48,9 +49,17 @@ impl CommentLine {
         }
     }
 
-    /// `needle` を含むなら1件を返す。**1行につき最大1件**（`grep` と同じ行単位）。
-    pub(crate) fn find(&self, needle: &str) -> Option<Hit> {
-        let column = self.column.locate(&self.text, needle)?;
+    /// 条件に当たるなら1件を返す。**1行につき最大1件**（`grep` と同じ行単位）。
+    ///
+    /// 🔑 所属の絞り込みは値と**同じ規則**でコメントにも当てる。
+    /// 「値には効くがコメントには効かない旗」を作らない。
+    pub(crate) fn find(&self, query: &Query) -> Option<Hit> {
+        if !query.covers(&self.path) {
+            return None;
+        }
+        let column = self
+            .column
+            .locate(&self.text, query.needle(), query.case())?;
         Some(Hit::in_comment(
             self.path.clone(),
             self.line,

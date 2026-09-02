@@ -1,5 +1,7 @@
 //! 1 始まりの桁（文字数）。
 
+use crate::case_match::CaseMatch;
+
 /// 1 始まりの桁。
 ///
 /// **単位はバイトではなく文字**である（`grep -b` ではなくエディタの桁に合わせる）。
@@ -37,9 +39,10 @@ impl Column {
     ///
     /// 🔑 バイト位置ではなく**文字数**で数える。ここを間違えると、非 ASCII を含む
     /// 行だけ桁がずれる（設計メモ「D-2 実測」で他のパーサに実際にあった癖である）。
-    pub(crate) fn locate(self, text: &str, needle: &str) -> Option<Self> {
-        let index = text.find(needle)?;
-        Some(self.shift(text.get(..index).unwrap_or("").chars().count()))
+    /// 数え方は `case` によらず同じで、**数えるのは常に原文**である
+    /// （[`CaseMatch`] の doc を見よ）。
+    pub(crate) fn locate(self, text: &str, needle: &str, case: CaseMatch) -> Option<Self> {
+        Some(self.shift(case.locate(text, needle)?))
     }
 }
 
@@ -52,6 +55,7 @@ impl core::fmt::Display for Column {
 #[cfg(test)]
 mod tests {
     use super::Column;
+    use crate::case_match::CaseMatch;
 
     #[test]
     fn zero_is_not_a_column() {
@@ -72,7 +76,24 @@ mod tests {
     #[test]
     fn locate_counts_characters_from_this_column() {
         let column = Column::after(2_usize);
-        assert_eq!(column.locate("あいう x", "x").map(Column::get), Some(7_u32));
-        assert_eq!(column.locate("abc", "z"), None);
+        assert_eq!(
+            column
+                .locate("あいう x", "x", CaseMatch::Exact)
+                .map(Column::get),
+            Some(7_u32)
+        );
+        assert_eq!(column.locate("abc", "z", CaseMatch::Exact), None);
+    }
+
+    /// 大文字小文字を無視しても、桁の数え方は変わらない。
+    #[test]
+    fn locate_keeps_the_same_column_when_folding_case() {
+        let column = Column::after(2_usize);
+        assert_eq!(
+            column
+                .locate("あいう X", "x", CaseMatch::Fold)
+                .map(Column::get),
+            Some(7_u32)
+        );
     }
 }

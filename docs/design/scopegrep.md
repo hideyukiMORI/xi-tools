@@ -103,9 +103,18 @@ scopegrep/          bin。引数・ファイル走査・出力。std に触る�
 pub fn parse(source: &str) -> Result<Document, ParseError>;
 
 impl Document {
-    /// 固定文字列 `needle` を含むスカラー値を、出現順（行・列）で返す。
-    pub fn search(&self, needle: &str) -> Vec<Hit>;
+    /// 条件に合うスカラー値（と、求められればコメント）を出現順（行・列）で返す。
+    pub fn search(&self, query: &Query) -> Vec<Hit>;
 }
+
+/// 検索条件（v1.2）。フィールドは非公開。
+impl Query {
+    pub fn new(needle: &str) -> Self;              // 固定文字列・大文字小文字を区別・値だけ
+    pub fn ignoring_case(self) -> Self;            // -i
+    pub fn including_comments(self) -> Self;       // --comments
+    pub fn within(self, pattern: ScopePattern) -> Self;   // --scope
+}
+impl ScopePattern { pub fn parse(text: &str) -> Result<Self, ScopePatternError>; }
 
 impl Hit {
     pub fn path(&self) -> &ScopePath;
@@ -128,8 +137,13 @@ impl core::fmt::Display for ScopePath      // 人向け: jobs.e2e.steps[2] "Uplo
 
 ### 検索の意味
 
-- `needle` は**固定文字列**（正規表現ではない）。大文字小文字を区別する。
+- `needle` は**固定文字列**（正規表現ではない）。既定は大文字小文字を区別し、`-i` で無視する。
+  `-i` でも**列は原文の一致位置**（小文字化した文字列上の位置ではない。`ß`→`ss` のように長さが変わる文字で列がずれるため）。
   正規表現は `regex` crate を要し、ARC-004 の ADR になる。**要るようになったら足す**
+- `--scope <pattern>` で**構造の位置で絞る**（v1.2）。パターンは JSON Pointer の形で、セグメントは `*`（ちょうど 1 つ）・
+  `**`（0 個以上）・リテラル（エスケープ解除後のキー／索引と完全一致）。ヒットのポインタに**全体一致**。
+  `scopegrep --scope '/jobs/*/steps/*/if' '' .github/workflows/` で全ステップの条件が列挙できる。
+  🔴 `*` を部分一致のグロブにしない。セグメント単位の一致という**一つの意味**に固定する
 - 探すのは**スカラー値だけ**。キーは探さない。コメントは既定では探さず、`SearchScope::ValuesAndComments`
   （CLI では `--comments`）のときだけ**「コメントである」と明示して**返す（v1.1）
 - コメントヒットの所属は「**どの入れ子の中に書かれたか**」であって「誰の説明か」ではない。
@@ -183,14 +197,17 @@ impl core::fmt::Display for ScopePath      // 人向け: jobs.e2e.steps[2] "Uplo
 ## CLI（`scopegrep` バイナリ）
 
 ```
-scopegrep [--json] [--comments] <needle> <path>...
+scopegrep [-i] [--json] [--comments] [--scope <pattern>] <needle> [<path>...]
 scopegrep --help | --version
 ```
 
 | 引数 | 意味 |
 | --- | --- |
 | `<needle>` | 固定文字列 |
-| `<path>` | ファイルなら拡張子を問わず読む。ディレクトリなら再帰して `.yml` / `.yaml` だけ読む。走査順はパスのバイト順で決定的。`.git` ディレクトリだけ飛ばす。シンボリックリンクは辿らない |
+| `<path>` | ファイルなら拡張子を問わず読む。ディレクトリなら再帰して `.yml` / `.yaml` だけ読む。走査順はパスのバイト順で決定的。シンボリックリンクは辿らない。**省略すると `.`**（表示に `./` を付けない。明示した `.` は `./` 付き＝与えたパスをそのまま使う） |
+| （除外） | 再帰中は **`.git` `node_modules` `vendor` `target` `.venv`** に入らない（固定リスト・旗で変えない）。名指ししたパスは除外しない。根拠: 手元の `node_modules` に 3,206・`vendor` に 3,837 の YAML があり、自前の 188 本の 37 倍。`dist` は施主の実フォルダ名と衝突するので入れない。`.gitignore` の解釈は実装しない（依存か複雑さを要する。固定リストが今回の一つの手段） |
+| `-i` / `--ignore-case` | 大文字小文字を無視（v1.2） |
+| `--scope <pattern>` | 構造の位置で絞る（v1.2・上記）。不正なパターン・2 回指定は usage エラー |
 | `--json` | JSON Lines で出す |
 | `--comments` | コメント内のヒットも、種別付きで返す（v1.1）。既定では返さない |
 | `--` | 以降を引数として扱う |
