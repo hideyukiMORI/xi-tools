@@ -132,33 +132,55 @@ impl GithubSlug { owner() -> &str; name() -> &str }
 
 // GitHub
 pub const REPOS_PER_QUERY: usize = 3;                        // 実測で決めた値。上表
-pub fn build_query(slugs: &[GithubSlug]) -> String;          // エイリアス r0..rN
+pub fn build_query(slugs: &[GithubSlug]) -> String;          // エイリアス r0..rN ＋ fragment RepoFields（実測で動作確認済み）
 pub fn parse_response(json: &JsonValue, slugs: &[GithubSlug]) -> Vec<Result<RemoteState, RemoteError>>;
-impl RemoteState { default_branch() -> &str; ci() -> CiState; open_pull_requests() -> u32; stale_branches(today: Day, threshold_days: u32) -> u32 }
+impl RemoteState { default_branch() -> Option<&str>; ci() -> CiState; open_pull_requests() -> u32; stale_branches(&self, freshness: &Freshness) -> StaleCount }
 pub enum CiState { Success, Failure, Pending, Absent }       // SUCCESS / FAILURE・ERROR / PENDING・EXPECTED / null
-pub enum RemoteError { NotFound, Message(String) }           // errors[].path が指す先。Message は GitHub の message 原文
+pub enum StaleCount { Known(u32), Truncated }                // refs.totalCount > nodes の数なら Truncated（100 本超は数えない）
+pub enum RemoteError { NotFound, Rejected(String), Malformed(String) }   // NOT_FOUND / GitHub の message 原文 / 応答の形が想定外
+pub struct Freshness { ... }  impl Freshness { pub fn new(today: Day, stale_days: u32) -> Self }
 
 // 日付
 pub struct Day(...);  impl Day { pub fn from_unix_seconds(secs: u64) -> Self; pub fn parse_iso8601(s: &str) -> Option<Self>; pub fn days_since(self, earlier: Self) -> Option<u32> }
 
 // 表
-pub struct Row { ... }  // name + Local(Result<LocalState, LocalUnavailable>) + Remote(NotOnGithub | Unavailable | State)
-pub fn render(rows: &[Row]) -> String;                       // 名前のバイト順に並べ替えてから整形。末尾改行あり
+pub enum LocalReport { State(LocalState), Unavailable }
+pub enum RemoteReport { State(RemoteState), NotOnGithub, Unavailable }
+pub struct Row { ... }  impl Row { pub fn new(name: String, local: LocalReport, remote: RemoteReport) -> Self; pub fn is_complete(&self, freshness: &Freshness) -> bool }
+pub fn render(rows: &[Row], freshness: &Freshness) -> String;   // 名前のバイト順に並べ替えてから整形。末尾改行あり
 ```
 
 型ごとに 1 ファイル（CNF-003）。`HashMap` 禁止。`Default` 禁止。数値リテラルは型付き。
 
+GraphQL クエリの形（`build_query` が返す。fragment で 1 回だけフィールドを書く）:
+
+```graphql
+query {
+  r0: repository(owner: "example-org", name: "alpha") { ...RepoFields }
+  r1: repository(owner: "example-org", name: "beta") { ...RepoFields }
+}
+fragment RepoFields on Repository { nameWithOwner defaultBranchRef { name target { ... on Commit { committedDate statusCheckRollup { state } } } } pullRequests(states: OPEN) { totalCount } refs(refPrefix: "refs/heads/", first: 100) { totalCount nodes { name target { ... on Commit { committedDate } } } } }
+```
+
+応答の形は 3 通りある（すべて実測）:
+
+| 形 | 意味 | 扱い |
+| --- | --- | --- |
+| `data.rN` がオブジェクト | 取れた | `RemoteState` |
+| `data.rN` が `null` ＋ `errors[].path == ["rN"]` | そのリポだけ失敗（`type: NOT_FOUND` 等） | `NotFound` / `Rejected(message)` |
+| `data` が無く `message` だけ（`{"message":"Bad credentials"}`） | リクエスト全体が失敗 | 全リポ `Rejected(message)` |
+
 ## 出力の形（完全一致で試験する）
 
 ```
-REPO         BRANCH        DIRTY  AHEAD/BEHIND  PR  CI    STALE
-alpha        main          -      -             -   ok    -
-beta         feat/login    3      +2/-1         1   FAIL  2
-gamma        (detached)    -      (none)        n/a n/a   n/a
-delta        main          ?      ?             ?   ?     ?
+REPO   BRANCH      DIRTY  AHEAD/BEHIND  PR   CI    STALE
+alpha  main        -      -             -    ok    -
+beta   feat/login  3      +2/-1         1    FAIL  2
+gamma  (detached)  -      (none)        n/a  n/a   n/a
+delta  main        ?      ?             ?    ?     ?
 ```
 
-- 列は 2 空白区切り・左寄せ。列幅はその列の最大長（見出し含む）。行末の空白は出さない
+- 列は 2 空白区切り・左寄せ。列幅はその列の最大長（見出し含む・文字数）。最終列は詰めない。行末の空白は出さない
 - `REPO`: ディレクトリ名。バイト順
 - `BRANCH`: `# branch.head`。detached は `(detached)`
 - `DIRTY`: 変更・未追跡・衝突の**エントリ数**（porcelain v2 の `1` `2` `u` `?` 行の合計）。0 は `-`
