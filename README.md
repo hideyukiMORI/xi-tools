@@ -103,6 +103,7 @@ make check
 
 **これが唯一の入口です。** CI も `make check` を呼ぶだけで、CI 側にしか無い検査を作りません
 （「手元では通ったのに CI で落ちた」を構造的に起こさないため）。
+`make coverage` だけは `cargo-llvm-cov` が要ります（`cargo install cargo-llvm-cov --locked`）。
 
 版は `rust-toolchain.toml` が決めます。`Makefile` にも CI にも版を書きません
 （2箇所に書くと、片方だけ上げられて「手元では通る」が生まれるため）。

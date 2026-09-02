@@ -8,12 +8,12 @@
 #    2箇所に書くと、片方だけ上げられて「手元では通る」が生まれる。
 CARGO ?= cargo
 
-.PHONY: all check fmt fmt-check lint test conformance build doc-check clean prove
+.PHONY: all check fmt fmt-check lint test conformance coverage build doc-check clean prove
 
 all: check
 
 ## check — 提出前に必ず通すもの。CI もこれを呼ぶ
-check: fmt-check lint test conformance doc-check build
+check: fmt-check lint test conformance coverage doc-check build
 
 ## fmt — rustfmt に設定ファイルを置かない。整形の流儀を議論する余地をそもそも作らない
 fmt:
@@ -36,6 +36,16 @@ test:
 ## lint が見ないものだけを見る。規則の正本は docs/coding-rules.md。
 conformance:
 	$(CARGO) run --quiet -p xtask --locked
+
+## coverage — 行カバレッジの下限（QLT-008）。上げる方向にしか動かさない。
+## 🔴 下限は実測（2026-09-02: 92.21%）より下に置いた。100% を目標にするための数字ではなく、
+##    「テストを消したら落ちる」ための数字である。
+## cargo-llvm-cov 0.9.0 は下限割れをメッセージ無しの終了コード 1 で返す（実測）。
+## 導入: rustup component add llvm-tools-preview && cargo install cargo-llvm-cov --locked
+COVERAGE_MIN_LINES ?= 90
+coverage:
+	@command -v cargo-llvm-cov >/dev/null || { echo "coverage: cargo-llvm-cov が無い。cargo install cargo-llvm-cov --locked"; exit 2; }
+	$(CARGO) llvm-cov --workspace --locked --summary-only --fail-under-lines $(COVERAGE_MIN_LINES)
 
 ## doc-check — rustdoc の警告（壊れた intra-doc link 等）を失敗にする
 doc-check:

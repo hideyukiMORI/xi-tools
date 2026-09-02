@@ -1,4 +1,5 @@
 # 版を固定する。「手元では通る」を環境差で作らないため。
 [toolchain]
 channel = "1.98.0"
-components = ["rustfmt", "clippy"]
+# llvm-tools-preview は make coverage（cargo-llvm-cov）が要る。
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
