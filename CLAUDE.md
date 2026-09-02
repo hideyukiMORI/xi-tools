@@ -41,7 +41,7 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 | workspace の足場・CI | ✅ 完了（2026-09-01・`c1bbe4a`） |
 | コーディング規約と機械強制 | ✅ 完了（2026-09-02・`docs/coding-rules.md` / `xtask`） |
 | `scopegrep` | ✅ **0.1.0 公開済み**（2026-09-02・crates.io / GitHub Release）。機能追加は施主判断で停止中 |
-| `fleet-top` | ✅ **動く**（2026-09-02・`feat/fleet-top-core`）。60 リポ 1.6〜1.8 s 実測。**版は 0.0.0・未公開**（出すかは施主判断） |
+| `fleet-top` | ✅ **0.1.0 公開済み**（2026-09-02・crates.io / GitHub Release `fleet-top-v0.1.0`）。60 リポ 1.6〜1.8 s 実測 |
 | 候補一覧 | `docs/design/candidates.md`（作らないと決めたものも含む） |
 
 **動くもの:** `make check`（fmt / clippy / test / conformance / coverage / deny / doc / build）と CI、`xtask`、
@@ -52,8 +52,8 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 
 ### 次にやること
 
-正本は `docs/todo/current.md`。`fleet-top` の PR をマージしたら、**出すかどうか（版・publish・Release matrix）は施主に確認**。
-`scopegrep` の部分集合を広げるなら、設計メモの表を先に更新してから実装する。
+正本は `docs/todo/current.md`。2 本とも出た。**次の 1 手は無い**（困った人が現れてから）。
+版とタグはツールごと（`<tool>-vX.Y.Z`・`docs/release.md`）。`scopegrep` の部分集合を広げるなら、設計メモの表を先に更新してから実装する。
 
 ---
 
