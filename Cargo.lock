@@ -13,14 +13,14 @@ dependencies = [
 
 [[package]]
 name = "fleet-top"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "fleet-top-core",
 ]
 
 [[package]]
 name = "fleet-top-core"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "memchr"

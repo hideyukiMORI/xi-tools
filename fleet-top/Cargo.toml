@@ -1,6 +1,6 @@
 [package]
 name = "fleet-top"
-version = "0.0.0"
+version = "0.1.0"
 description = "one screen for the state of many git repositories: branch, dirty, ahead/behind, open PRs, CI, stale branches"
 edition.workspace = true
 license.workspace = true
@@ -19,4 +19,4 @@ workspace = true
 #    版は `=` ではなく素の版で書く。固定するのは `Cargo.lock` の仕事であり、
 #    ここを `=` にすると単独 publish したときに下流の解決を縛る。
 [dependencies]
-fleet-top-core = { path = "../fleet-top-core", version = "0.0.0" }
+fleet-top-core = { path = "../fleet-top-core", version = "0.1.0" }

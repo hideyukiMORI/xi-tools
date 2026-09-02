@@ -2,9 +2,12 @@ name: Release
 
 # 🔴 走る条件はタグの push だけである。workflow_dispatch を足さないこと。
 #    手で起動できる口があると、「どの版の binary か」がタグ以外の理由で決まりうる。
+#
+# タグは `<tool>-vX.Y.Z`（fleet-top-v0.1.0 / scopegrep-v0.2.0）。`v*` は scopegrep の旧形
+# （v0.1.0 が接頭辞の無い時代に打たれている）。どのツールかは Makefile の tag-tool が決める。
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '*-v*']
 
 # 既定は読むだけ。書き込みを持つのは release job だけである（下で明示する）。
 permissions:
@@ -15,6 +18,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # 🔑 タグの解釈（ツール名・版・配布 feature）は Makefile にあり（QLT-003）、ここは呼んで
+    #    build job に渡すだけ。Windows runner に make を要求しないために ubuntu で 1 回だけ解く。
+    outputs:
+      tool: ${{ steps.tag.outputs.tool }}
+      version: ${{ steps.tag.outputs.version }}
+      features: ${{ steps.tag.outputs.features }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,10 +34,23 @@ jobs:
           rustc --version
           cargo --version
 
-      # 🔴 タグと Cargo.toml の版が食い違ったまま binary を出さない。
-      #    判定そのものは Makefile にある（QLT-003）。ここは呼ぶだけ。
       # 🔑 タグ名は env 経由で渡す。run の中に ${{ }} を直接展開すると、
       #    タグ名がそのままシェルの一部になる。
+      - name: Resolve the tag
+        id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          tool="$(make -s tag-tool TAG="${TAG}")"
+          version="$(make -s tag-version TAG="${TAG}")"
+          features="$(make -s release-features TOOL="${tool}")"
+          echo "tool=${tool}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "features=${features}" >> "$GITHUB_OUTPUT"
+          echo "tag ${TAG} -> tool=${tool} version=${version} features='${features}'"
+
+      # 🔴 タグと Cargo.toml の版が食い違ったまま binary を出さない。
+      #    判定そのものは Makefile にある（QLT-003）。ここは呼ぶだけ。
       - name: Check the tag against Cargo.toml
         env:
           TAG: ${{ github.ref_name }}
@@ -61,22 +83,26 @@ jobs:
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      TOOL: ${{ needs.verify.outputs.tool }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      FEATURES: ${{ needs.verify.outputs.features }}
     steps:
       - uses: actions/checkout@v4
 
-      # 🔴 配る binary には regex を入れる（ADR 0002）。既定ビルドが依存 0 であることと、
-      #    配布物に正規表現が入っていることは両立する。cargo install した人だけが選ぶ。
+      # 🔴 配る feature は Makefile の release-features が決める（scopegrep だけ regex 入り・ADR 0002）。
+      #    ここに `--features` を直書きしないこと。
       - name: Build
-        run: cargo build --release --locked -p scopegrep --features regex
+        shell: bash
+        run: cargo build --release --locked -p "${TOOL}" ${FEATURES}
 
       - name: Archive (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          name="scopegrep-${version}-${{ matrix.target }}"
+          name="${TOOL}-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
-          cp target/release/scopegrep "dist/${name}/scopegrep"
+          cp "target/release/${TOOL}" "dist/${name}/${TOOL}"
           cp LICENSE README.md "dist/${name}/"
           tar -czf "dist/${name}.tar.gz" -C dist "${name}"
           cd dist
@@ -91,10 +117,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = "$env:GITHUB_REF_NAME" -replace '^v', ''
-          $name = "scopegrep-$version-${{ matrix.target }}"
+          $name = "$env:TOOL-$env:VERSION-${{ matrix.target }}"
           New-Item -ItemType Directory -Path "dist/$name" -Force | Out-Null
-          Copy-Item target/release/scopegrep.exe "dist/$name/"
+          Copy-Item "target/release/$env:TOOL.exe" "dist/$name/"
           Copy-Item LICENSE, README.md "dist/$name/"
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
           $sum = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
@@ -105,7 +130,7 @@ jobs:
       - name: Upload the archive
         uses: actions/upload-artifact@v4
         with:
-          name: scopegrep-${{ matrix.target }}
+          name: ${{ env.TOOL }}-${{ matrix.target }}
           path: |
             dist/*.tar.gz
             dist/*.zip

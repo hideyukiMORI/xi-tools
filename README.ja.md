@@ -250,11 +250,11 @@ GitHub は `gh api graphql` 経由で読むので、**`gh` が入っていてロ
 
 ### インストール
 
-crates.io にはまだ出していません。リポジトリから:
-
 ```bash
-cargo install --path fleet-top
+cargo install fleet-top
 ```
+
+各 OS の binary は [GitHub Releases](https://github.com/hideyukiMORI/xi-tools/releases)（タグ `fleet-top-v…`）にあります。
 
 ### 作る前に測ったこと
 

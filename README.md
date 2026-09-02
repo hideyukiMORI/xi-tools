@@ -278,11 +278,12 @@ borrows its authentication and handles no token of its own.
 
 ### Install
 
-Not on crates.io yet. From the repository:
-
 ```bash
-cargo install --path fleet-top
+cargo install fleet-top
 ```
+
+Binaries for each OS are on
+[GitHub Releases](https://github.com/hideyukiMORI/xi-tools/releases) (tag `fleet-top-v…`).
 
 ### What was measured before writing it
 
