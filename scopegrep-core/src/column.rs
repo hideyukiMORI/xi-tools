@@ -32,6 +32,15 @@ impl Column {
                 .saturating_add(u32::try_from(chars).unwrap_or(u32::MAX)),
         )
     }
+
+    /// この桁から始まる `text` の中で、`needle` が始まる桁。含まなければ `None`。
+    ///
+    /// 🔑 バイト位置ではなく**文字数**で数える。ここを間違えると、非 ASCII を含む
+    /// 行だけ桁がずれる（設計メモ「D-2 実測」で他のパーサに実際にあった癖である）。
+    pub(crate) fn locate(self, text: &str, needle: &str) -> Option<Self> {
+        let index = text.find(needle)?;
+        Some(self.shift(text.get(..index).unwrap_or("").chars().count()))
+    }
 }
 
 impl core::fmt::Display for Column {
@@ -58,5 +67,12 @@ mod tests {
     #[test]
     fn shift_moves_right() {
         assert_eq!(Column::after(0_usize).shift(4_usize).get(), 5_u32);
+    }
+
+    #[test]
+    fn locate_counts_characters_from_this_column() {
+        let column = Column::after(2_usize);
+        assert_eq!(column.locate("あいう x", "x").map(Column::get), Some(7_u32));
+        assert_eq!(column.locate("abc", "z"), None);
     }
 }

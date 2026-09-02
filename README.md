@@ -44,7 +44,7 @@ $ grep -n 'cancelled()' scopegrep-core/testdata/workflow-with-comment.yml
 偽陰性（ファイル名が違うリポを見落とし）が同時に出ました。**
 
 `scopegrep` は、マッチした値が構造上どこに属するかを返します。
-**コメント内の一致は返しません**（上の 5 行に対してこの 2 行です）。
+**コメント内の一致は既定では返しません**（上の 5 行に対してこの 2 行です）。
 
 ```console
 $ scopegrep 'cancelled()' scopegrep-core/testdata/
@@ -52,15 +52,33 @@ scopegrep-core/testdata/workflow-with-comment.yml:33: jobs.frontend-check.steps[
 scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload Playwright report" .if = ${{ !cancelled() }}
 ```
 
+コメントを**捨てているのではなく、区別している**ので、`--comments` を付けると
+`grep -n` と同じ 5 行が、どちらだったかの印付きで返ります。
+
+```console
+$ scopegrep --comments 'cancelled()' scopegrep-core/testdata/
+scopegrep-core/testdata/workflow-with-comment.yml:4: #comment = #    候補パーサは、下の3つの `cancelled()` を **別物として区別できなければならない**。
+scopegrep-core/testdata/workflow-with-comment.yml:29: jobs.frontend-check.steps #comment = # 1) 散文。ここに書かれた cancelled() は設定値ではない。
+scopegrep-core/testdata/workflow-with-comment.yml:30: jobs.frontend-check.steps #comment = #    !cancelled() を使う理由を説明しているだけで、実行条件ではない。
+scopegrep-core/testdata/workflow-with-comment.yml:33: jobs.frontend-check.steps[3] "Audit (fail on high/critical)" .if = ${{ !cancelled() }}
+scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload Playwright report" .if = ${{ !cancelled() }}
+```
+
+コメントの所属は「**そのコメントがどの桁に書かれたか**」で決めます。
+「このコメントは誰の説明か」は推測しません（29〜30 行目は `steps[3]` の説明ですが、
+構文木で持つ実装ではこれが `steps[2]` に付きます。実測は[設計メモ](./docs/design/scopegrep.md)の「D-2 実測」）。
+
 🔴 **この README の `console` ブロックは、実際に実行した出力です。**
 `scopegrep/tests/readme.rs` が `make check` のたびにコマンドを実行し、
 続く行と**完全一致**することを確かめます（一致しなければテストが落ちます）。
 
 ### 設計上の判断
 
-- **コメント内のヒットを返さない。** 行ではなく構造を読むので、
+- **コメント内のヒットを既定では返さない。** 行ではなく構造を読むので、
   `# ... cancelled() ...` のような散文と実際の設定値を混同しません。
-  行ベースの検索はこれを必ず拾います（上の 5 行と 2 行の差がそれです）
+  行ベースの検索はこれを必ず拾います（上の 5 行と 2 行の差がそれです）。
+  区別した結果を捨てているわけではないので、`--comments` を付ければ
+  **コメントだと明示した上で**返します
 - **読む YAML を部分集合に限り、外はエラーにする。**
   読めるのはブロックマッピング・ブロックシーケンス・1行スカラー（プレーン / `'…'` / `"…"`）・
   ブロックスカラー（`|` `>`）・1行のフロー記法・コメント・先頭の `---` です。
@@ -68,12 +86,14 @@ scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload 
   **読めません**。黙って誤読した結果を返さず、**何行目の何が読めなかったかを言って落ちます**
   （一覧は[設計メモ](./docs/design/scopegrep.md)の「対応する YAML の部分集合」）
 - **機械向けの出力を持つ。** `--json` は1ヒット1行の JSON Lines で、
-  所属を RFC 6901 の JSON Pointer でも返します
+  所属を RFC 6901 の JSON Pointer でも返します。`kind` は `--comments` の有無に
+  かかわらず常に出ます（キーの数が入力で変わると、受け手が
+  「今回は出ていないだけ」と区別できないため）
 
 ```console
 $ scopegrep --json 'cancelled()' scopegrep-core/testdata/workflow-with-comment.yml
-{"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":33,"column":18,"pointer":"/jobs/frontend-check/steps/3/if","path":"jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if","label":"Audit (fail on high/critical)","value":"${{ !cancelled() }}"}
-{"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":46,"column":18,"pointer":"/jobs/e2e/steps/2/if","path":"jobs.e2e.steps[2] \"Upload Playwright report\" .if","label":"Upload Playwright report","value":"${{ !cancelled() }}"}
+{"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":33,"column":18,"pointer":"/jobs/frontend-check/steps/3/if","path":"jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if","label":"Audit (fail on high/critical)","value":"${{ !cancelled() }}","kind":"value"}
+{"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":46,"column":18,"pointer":"/jobs/e2e/steps/2/if","path":"jobs.e2e.steps[2] \"Upload Playwright report\" .if","label":"Upload Playwright report","value":"${{ !cancelled() }}","kind":"value"}
 ```
 
 - **終了コードは `grep` と同じ。** 0 = 1件以上ヒット / 1 = ヒット無し / 2 = エラー。

@@ -8,6 +8,8 @@
 pub(crate) enum Argument<'a> {
     /// `--json`。
     Json,
+    /// `--comments`。
+    Comments,
     /// `-h` / `--help`。
     Help,
     /// `-V` / `--version`。
@@ -26,6 +28,9 @@ impl<'a> Argument<'a> {
     pub(crate) fn read(text: &'a str) -> Self {
         if text == "--json" {
             return Self::Json;
+        }
+        if text == "--comments" {
+            return Self::Comments;
         }
         if text == "-h" || text == "--help" {
             return Self::Help;

@@ -84,29 +84,119 @@ fn a_human_run_prints_the_scope_of_every_hit() {
     assert_eq!(output.status.code(), Some(0_i32));
 }
 
-/// 🔴 コメント内の `cancelled()` は3件ある。それが出ないことがこの道具の存在理由である。
+/// 🔴 コメント内の `cancelled()` は3件ある。既定でそれが出ないことがこの道具の存在理由である。
 #[test]
 fn comments_never_become_hits() {
     let output = spawn(&["cancelled()", FIXTURE]).expect("バイナリを起動できるはず");
     assert_eq!(stdout(&output).lines().count(), 2);
 }
 
+// ── 1b. `--comments` は同じ5行を種別付きで返す ─────────────────────────────
+
+/// 🔴 `grep -n` が返す5行と**同じ5行**が、値とコメントに分かれて返る。
+/// 偽陽性を消すのではなく、**別枠にする**のがこの旗の意味である。
+#[test]
+fn comments_are_returned_as_comments_when_asked() {
+    let output = spawn(&["--comments", "cancelled()", FIXTURE]).expect("バイナリを起動できるはず");
+    let expected = FIXTURE.to_owned()
+        + ":4: #comment = #    候補パーサは、下の3つの `cancelled()` を **別物として区別できなければならない**。\n"
+        + FIXTURE
+        + ":29: jobs.frontend-check.steps #comment = # 1) 散文。ここに書かれた cancelled() は設定値ではない。\n"
+        + FIXTURE
+        + ":30: jobs.frontend-check.steps #comment = #    !cancelled() を使う理由を説明しているだけで、実行条件ではない。\n"
+        + FIXTURE
+        + ":33: jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if = ${{ !cancelled() }}\n"
+        + FIXTURE
+        + ":46: jobs.e2e.steps[2] \"Upload Playwright report\" .if = ${{ !cancelled() }}\n";
+    assert_eq!(stdout(&output), expected);
+    assert_eq!(stderr(&output), "");
+    // コメントもヒットである。ヒットがあるので 0 で終わる。
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// 🔴 旗を付けない既定の出力は**1文字も変わらない**。
+#[test]
+fn the_flag_does_not_change_the_default_output() {
+    let plain = spawn(&["cancelled()", FIXTURE]).expect("バイナリを起動できるはず");
+    let expected = FIXTURE.to_owned()
+        + ":33: jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if = ${{ !cancelled() }}\n"
+        + FIXTURE
+        + ":46: jobs.e2e.steps[2] \"Upload Playwright report\" .if = ${{ !cancelled() }}\n";
+    assert_eq!(stdout(&plain), expected);
+}
+
+/// コメントしか当たらない語でも、ヒットはヒットである（終了コード 0）。
+#[test]
+fn a_comment_only_match_still_exits_zero() {
+    let bare = spawn(&["1) 散文", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&bare), "");
+    assert_eq!(bare.status.code(), Some(1_i32));
+
+    let asked = spawn(&["--comments", "1) 散文", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&asked).lines().count(), 1);
+    assert_eq!(asked.status.code(), Some(0_i32));
+}
+
 // ── 2. JSON 出力の完全一致 ──────────────────────────────────────────────────
 
 #[test]
-fn a_json_run_prints_seven_keys_in_a_fixed_order() {
+fn a_json_run_prints_eight_keys_in_a_fixed_order() {
     let output = spawn(&["--json", "cancelled()", FIXTURE]).expect("バイナリを起動できるはず");
     let expected = "{\"file\":\"".to_owned()
         + FIXTURE
         + "\",\"line\":33,\"column\":18,\"pointer\":\"/jobs/frontend-check/steps/3/if\","
         + "\"path\":\"jobs.frontend-check.steps[3] \\\"Audit (fail on high/critical)\\\" .if\","
-        + "\"label\":\"Audit (fail on high/critical)\",\"value\":\"${{ !cancelled() }}\"}\n"
+        + "\"label\":\"Audit (fail on high/critical)\",\"value\":\"${{ !cancelled() }}\","
+        + "\"kind\":\"value\"}\n"
         + "{\"file\":\""
         + FIXTURE
         + "\",\"line\":46,\"column\":18,\"pointer\":\"/jobs/e2e/steps/2/if\","
         + "\"path\":\"jobs.e2e.steps[2] \\\"Upload Playwright report\\\" .if\","
-        + "\"label\":\"Upload Playwright report\",\"value\":\"${{ !cancelled() }}\"}\n";
+        + "\"label\":\"Upload Playwright report\",\"value\":\"${{ !cancelled() }}\","
+        + "\"kind\":\"value\"}\n";
     assert_eq!(stdout(&output), expected);
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// `--json --comments` の期待出力（5行）。**行の並びも含めて完全一致で固定する**。
+///
+/// ルートに書かれたコメントは `pointer` も `path` も空文字列である
+/// （RFC 6901 で空の Pointer が文書全体を指す）。
+fn expected_json_with_comments() -> String {
+    let mut text = String::new();
+    for tail in [
+        "\",\"line\":4,\"column\":20,\"pointer\":\"\",\"path\":\"\",\"label\":null,\
+         \"value\":\"#    候補パーサは、下の3つの `cancelled()` を **別物として区別できなければならない**。\",\
+         \"kind\":\"comment\"}",
+        "\",\"line\":29,\"column\":23,\"pointer\":\"/jobs/frontend-check/steps\",\
+         \"path\":\"jobs.frontend-check.steps\",\"label\":null,\
+         \"value\":\"# 1) 散文。ここに書かれた cancelled() は設定値ではない。\",\"kind\":\"comment\"}",
+        "\",\"line\":30,\"column\":13,\"pointer\":\"/jobs/frontend-check/steps\",\
+         \"path\":\"jobs.frontend-check.steps\",\"label\":null,\
+         \"value\":\"#    !cancelled() を使う理由を説明しているだけで、実行条件ではない。\",\"kind\":\"comment\"}",
+        "\",\"line\":33,\"column\":18,\"pointer\":\"/jobs/frontend-check/steps/3/if\",\
+         \"path\":\"jobs.frontend-check.steps[3] \\\"Audit (fail on high/critical)\\\" .if\",\
+         \"label\":\"Audit (fail on high/critical)\",\"value\":\"${{ !cancelled() }}\",\"kind\":\"value\"}",
+        "\",\"line\":46,\"column\":18,\"pointer\":\"/jobs/e2e/steps/2/if\",\
+         \"path\":\"jobs.e2e.steps[2] \\\"Upload Playwright report\\\" .if\",\
+         \"label\":\"Upload Playwright report\",\"value\":\"${{ !cancelled() }}\",\"kind\":\"value\"}",
+    ] {
+        text.push_str("{\"file\":\"");
+        text.push_str(FIXTURE);
+        text.push_str(tail);
+        text.push('\n');
+    }
+    text
+}
+
+/// 🔑 `kind` は旗の有無によらず 8 番目に必ず出る。キーの数が入力で変わると、
+/// 受け手が「今回は出ていないだけ」と「そういう値だった」を区別できない。
+#[test]
+fn a_json_run_with_comments_marks_every_line() {
+    let output =
+        spawn(&["--json", "--comments", "cancelled()", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), expected_json_with_comments());
+    assert_eq!(stderr(&output), "");
     assert_eq!(output.status.code(), Some(0_i32));
 }
 
@@ -156,7 +246,7 @@ fn bad_arguments_print_the_usage_and_exit_two() {
         let output = spawn(&arguments).expect("バイナリを起動できるはず");
         assert_eq!(
             stderr(&output),
-            "scopegrep: usage: scopegrep [--json] <needle> <path>...\n"
+            "scopegrep: usage: scopegrep [--json] [--comments] <needle> <path>...\n"
         );
         assert_eq!(stdout(&output), "");
         assert_eq!(output.status.code(), Some(2_i32));
