@@ -128,7 +128,7 @@ fn no_hit_prints_nothing_and_exits_one() {
 fn an_unreadable_file_is_reported_by_line_and_still_exits_two() {
     let output = spawn(&["cancelled()", ANCHOR, FIXTURE]).expect("バイナリを起動できるはず");
     let expected_error =
-        "scopegrep: ".to_owned() + ANCHOR + ":5: アンカー（&name） は読めない構文である\n";
+        "scopegrep: ".to_owned() + ANCHOR + ":5: アンカー（&name）は読めない構文である\n";
     assert_eq!(stderr(&output), expected_error);
     assert_eq!(stdout(&output).lines().count(), 2);
     assert_eq!(output.status.code(), Some(2_i32));

@@ -5,9 +5,12 @@
 //! **その条件がどのステップに付いているか** は分からない。
 //!
 //! ```console
-//! $ scopegrep 'cancelled()' .github/workflows/
-//! .github/workflows/ci.yml:33: jobs.frontend-check.steps[3] "Audit" .if = ${{ !cancelled() }}
+//! $ scopegrep 'cancelled()' scopegrep-core/testdata/
+//! scopegrep-core/testdata/workflow-with-comment.yml:33: jobs.frontend-check.steps[3] "Audit (fail on high/critical)" .if = ${{ !cancelled() }}
+//! scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload Playwright report" .if = ${{ !cancelled() }}
 //! ```
+//!
+//! 🔑 この例は README にも載っており、**`scopegrep/tests/readme.rs` が実行して照合する**。
 //!
 //! 設計は `docs/design/scopegrep.md`。
 //!
