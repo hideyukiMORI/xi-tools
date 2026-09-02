@@ -40,13 +40,14 @@
 | 作業指示 2: `fleet-top-core` 後半（porcelain v2・GraphQL クエリと応答・表の整形） | ✅ 2026-09-02（テスト 153・設計メモの例の矛盾 2 点を実装リナが発見） |
 | 作業指示 3: `fleet-top` bin（引数・走査・並列サブプロセス・出力・終了コード） | ✅ 2026-09-02（テスト 46・実機 60 リポ 1.6〜1.8 s。理由の無い `?` をレビューで修正） |
 | README（両言語）・`docs/benchmarks/fleet-top.md`・CHANGELOG・ARC-001 の記述更新 | ✅ 2026-09-02（設計リナが直接書いた。作業指示 4 は出していない） |
-| PR → CI → マージ | 🔲 |
+| PR #8 → CI → マージ | ✅ 2026-09-02 |
+| 出す判断 | ✅ 施主「出していい」（2026-09-02）。第三者が使える前提（`gh` ログイン済み・直下に並ぶ・GitHub のみ）と、文言が日本語であることを説明した上で |
+| 版 0.1.0・タグ方式 `<tool>-vX.Y.Z`・Release workflow の一般化・手順書 | 🔨 `release/fleet-top-0.1.0` |
+| publish（core → bin）→ タグ `fleet-top-v0.1.0` → Release workflow | 🔲 マージ後 |
 
-### 施主に確認すること（`fleet-top` を出すかどうか）
+### 後で判断すること
 
-- **版と publish**: 両 crate は `0.0.0` のまま。crates.io に出すなら `0.1.0` に上げ、`docs/release.md` の手順（core → bin）。
-  Release workflow（`release.yml`）は `scopegrep` の binary しか作らないので、`fleet-top` も配るなら matrix に足す
-- **README の例は照合していない**（出力が GitHub とローカルの状態に依存する）。この扱いでよいか
+- `--help` と stderr の文言が日本語（`scopegrep` も同じ）。英語圏に向けるなら両ツールまとめて英語化する
 - `--no-github` でローカルが読めなかった行は GitHub 3 列が `n/a`（聞いていない）。旗なしなら `?`。この非対称は意図どおり
 
 🔴 README に書く数字は `docs/benchmarks/fleet-top.md` からだけ取る（QLT-009）。

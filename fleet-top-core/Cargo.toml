@@ -1,6 +1,6 @@
 [package]
 name = "fleet-top-core"
-version = "0.0.0"
+version = "0.1.0"
 description = "no_std core of fleet-top: parses git/GitHub output into repository state and renders the table"
 edition.workspace = true
 license.workspace = true

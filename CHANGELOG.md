@@ -5,7 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+Each tool is versioned and tagged on its own (`<tool>-vX.Y.Z`). The first release of
+`scopegrep` carries the tag `v0.1.0`, from before the scheme had a tool prefix.
+
+## [fleet-top 0.1.0] — 2026-09-02
+
+First release of `fleet-top` (the command) and `fleet-top-core` (its `no_std` core).
 
 ### Added
 
@@ -22,7 +27,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   and the table renderer. Neither crate has a dependency
 - Measurements that decided the design are in `docs/benchmarks/fleet-top.md`
 
-## [0.1.0] — 2026-09-02
+## [scopegrep 0.1.0] — 2026-09-02
 
 First release of `scopegrep` (the command) and `scopegrep-core` (its `no_std` core).
 

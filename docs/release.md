@@ -1,8 +1,12 @@
 # リリース手順（内部）
 
-`scopegrep` を crates.io と GitHub Releases に出すときの手順。**順番に意味がある**ので、
+ツール（`scopegrep` / `fleet-top`）を crates.io と GitHub Releases に出すときの手順。**順番に意味がある**ので、
 気持ちで前後させない。判断の背景は [`../CLAUDE.md`](../CLAUDE.md)、規約は
-[`coding-rules.md`](./coding-rules.md)。
+[`coding-rules.md`](./coding-rules.md)。以下 `<tool>` は出すツール名。
+
+🔑 **版とタグはツールごと**である（ARC-001 の帰結。workspace で揃えると、変えていないツールに空の版が出る）。
+タグは `<tool>-vX.Y.Z`（`fleet-top-v0.1.0`・`scopegrep-v0.2.0`）。`v0.1.0` だけは接頭辞の無い時代の scopegrep のタグで、
+打ち直さない（`make tag-tool` は `v*` を scopegrep として受ける）。
 
 🔴 **この文書は施主が手で実行する手順である。** 自動化していないのは、
 publish が取り消せない操作（crates.io は削除ではなく yank しかできない）だからで、
@@ -23,9 +27,9 @@ publish が取り消せない操作（crates.io は削除ではなく yank し�
 
 | 場所 | |
 | --- | --- |
-| `scopegrep-core/Cargo.toml` | `version` |
-| `scopegrep/Cargo.toml` | `version` |
-| `scopegrep/Cargo.toml` | 依存宣言 `scopegrep-core = { path = "...", version = "..." }` |
+| `<tool>-core/Cargo.toml` | `version` |
+| `<tool>/Cargo.toml` | `version` |
+| `<tool>/Cargo.toml` | 依存宣言 `<tool>-core = { path = "...", version = "..." }` |
 
 `Cargo.lock` を追随させる（`cargo metadata --format-version 1 >/dev/null` でよい）。
 `--locked` を使う検査が全て落ちるので、忘れても必ず気づく。
@@ -39,16 +43,16 @@ publish が取り消せない操作（crates.io は削除ではなく yank し�
 
 ```bash
 make check
-make check-version TAG=v0.1.0
-make package
+make check-version TAG=<tool>-v0.1.0
+make package TOOL=<tool>
 ```
 
 - `make check` — 提出前に必ず通すもの。CI と同じ
 - `make check-version` — タグと `Cargo.toml` の版の一致。**Release workflow が同じものを呼ぶ**ので、
-  ここで通ればタグを打った後に落ちない
+  ここで通ればタグを打った後に落ちない。タグをツール名と版に分けるのは `make tag-tool` / `make tag-version`
 - `make package` — `.crate` を実際に作る。🔴 **2つを1回の `cargo package` で作る**。
   分けて打つと、まだ core が crates.io に無い初回は
-  `no matching package named scopegrep-core found` で落ちる（`Makefile` のコメントに実測を記録）
+  `no matching package named <tool>-core found` で落ちる（`Makefile` のコメントに実測を記録）
 
 ## 4. PR を出してマージする
 
@@ -60,15 +64,15 @@ crates.io に出したものは消せないので、レビューを通ってい�
 マージ後の `main` を pull し、クリーンな状態で:
 
 ```bash
-cargo publish -p scopegrep-core
+cargo publish -p <tool>-core
 #   ここで数分待つ（index に出るまで bin 側の解決が失敗する）
-cargo publish -p scopegrep
+cargo publish -p <tool>
 ```
 
-🔴 **core より先に bin を publish できない。** `scopegrep` の依存宣言は
-`{ path = "../scopegrep-core", version = "x.y.z" }` で、publish されるのは `version` の側である。
-crates.io に該当版の `scopegrep-core` が無い間、`cargo publish -p scopegrep` は
-`no matching package named scopegrep-core found` で落ちる。
+🔴 **core より先に bin を publish できない。** bin の依存宣言は
+`{ path = "../<tool>-core", version = "x.y.z" }` で、publish されるのは `version` の側である。
+crates.io に該当版の `<tool>-core` が無い間、`cargo publish -p <tool>` は
+`no matching package named <tool>-core found` で落ちる。
 
 ⚠️ **待ち時間は「index に反映されるまで」であって、決まった秒数ではない。**
 落ちたら数分置いてもう一度打つ。焦って `--no-verify` を付けない
@@ -77,8 +81,8 @@ crates.io に該当版の `scopegrep-core` が無い間、`cargo publish -p scop
 ## 6. タグを打つ
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag <tool>-v0.1.0
+git push origin <tool>-v0.1.0
 ```
 
 🔴 **タグは publish の後**。タグを push した瞬間に
@@ -89,8 +93,8 @@ GitHub Releases に binary が並ぶ。crates.io 側が失敗したままリリ�
 
 | job | すること |
 | --- | --- |
-| `verify` | `make check-version TAG=<タグ>` → `make check`。**タグと版が食い違ったらここで止まる** |
-| `build` | Linux x86_64 / macOS arm64 / Windows x86_64 の binary（`--features regex`）と `sha256` |
+| `verify` | `make tag-tool` / `tag-version` / `release-features` でタグを解き、`make check-version TAG=<タグ>` → `make check`。**タグと版が食い違ったらここで止まる** |
+| `build` | Linux x86_64 / macOS arm64 / Windows x86_64 の binary（scopegrep だけ `--features regex`）と `sha256` |
 | `release` | `gh release create <タグ> --generate-notes` に成果物を添付 |
 
 ⚠️ **書き込み権限を持つのは `release` job だけ**である。job を足すときに

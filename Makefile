@@ -8,7 +8,7 @@
 #    2箇所に書くと、片方だけ上げられて「手元では通る」が生まれる。
 CARGO ?= cargo
 
-.PHONY: all check fmt fmt-check lint test conformance coverage deny build doc-check clean prove package check-version
+.PHONY: all check fmt fmt-check lint test conformance coverage deny build doc-check clean prove package check-version tag-tool tag-version release-features
 
 ## 🔴 opt-in の feature（ADR 0002）。**片方だけ緑の状態を作らない**ので、
 ##    lint と test は既定構成と FEATURES 構成の両方で走らせる。
@@ -75,27 +75,57 @@ build:
 prove:
 	@echo "docs/quality/gate-proofs.md の手順に従って手で実行する"
 
+## tag-tool / tag-version — タグをツール名と版に分ける（release.yml が呼ぶ）。
+##
+## タグは `<tool>-vX.Y.Z`（例: fleet-top-v0.1.0・scopegrep-v0.2.0）。
+## 🔑 `vX.Y.Z` だけの形は scopegrep として受ける。v0.1.0 が接頭辞の無い時代に打たれていて、
+##    打ち直せない（publish 済みの版のタグは打ち直さない・docs/release.md 8）。
+## 🔴 ツールごとに版を持つのは ARC-001（1 ツール = 1 クレート・単独 publish）の帰結である。
+##    workspace 全体で版を揃えると、変えていないツールに空の版が出る。
+tag-tool:
+	@case "$(TAG)" in \
+	  "") echo "tag-tool: TAG= が空。例: TAG=fleet-top-v0.1.0" >&2; exit 2 ;; \
+	  v?*) echo scopegrep ;; \
+	  *-v?*) echo "$(TAG)" | sed 's/-v[^-]*$$//' ;; \
+	  *) echo "tag-tool: TAG=$(TAG) は <tool>-vX.Y.Z の形でない" >&2; exit 2 ;; \
+	esac
+
+tag-version:
+	@case "$(TAG)" in \
+	  v?*|*-v?*) echo "$(TAG)" | sed 's/^.*v//' ;; \
+	  *) echo "tag-version: TAG=$(TAG) は <tool>-vX.Y.Z の形でない" >&2; exit 2 ;; \
+	esac
+
+## release-features — 配る binary に付ける feature（release.yml が呼ぶ）。
+## 🔴 scopegrep だけ regex 入り（ADR 0002）。既定ビルドが依存 0 であることと、配布物に
+##    正規表現が入っていることは両立する。他のツールは feature を持たない。
+release-features:
+	@case "$(TOOL)" in \
+	  "") echo "release-features: TOOL= が空" >&2; exit 2 ;; \
+	  scopegrep) echo "--features regex" ;; \
+	  *) echo "" ;; \
+	esac
+
 ## check-version — タグと Cargo.toml の版が一致することを確かめる（release.yml が呼ぶ）。
 ##
 ## 🔴 版の正本は Cargo.toml である。タグを打ち間違えると、タグ名と中身の版が違う
 ##    binary が Release に並ぶ。それを人の注意ではなく、ここで落とす。
-## 🔴 判定を workflow 側に書かないこと（QLT-003）。手元で `make check-version TAG=v0.1.0`
+## 🔴 判定を workflow 側に書かないこと（QLT-003）。手元で `make check-version TAG=fleet-top-v0.1.0`
 ##    と打って、CI と同じ判定が同じ言葉で返ることに意味がある。
 ##
-## 🔑 依存宣言（scopegrep の `scopegrep-core = { ..., version = "x" }`）も同じ版か見る。
+## 🔑 依存宣言（bin の `<tool>-core = { ..., version = "x" }`）も同じ版か見る。
 ##    ここがずれると、単独 publish した bin が古い core を引く。
 check-version:
-	@case "$(TAG)" in \
-	  v?*) ;; \
-	  "") echo "check-version: TAG= が空。例: make check-version TAG=v0.1.0"; exit 2 ;; \
-	  *) echo "check-version: TAG=$(TAG) は v で始まっていない。タグは v0.1.0 の形で打つ"; exit 2 ;; \
-	esac
-	@expected="$(TAG)"; expected="$${expected#v}"; \
-	bin=`sed -n 's/^version = "\([^"]*\)".*/\1/p' scopegrep/Cargo.toml | head -n 1`; \
-	core=`sed -n 's/^version = "\([^"]*\)".*/\1/p' scopegrep-core/Cargo.toml | head -n 1`; \
-	dep=`sed -n 's/^scopegrep-core = .*version = "\([^"]*\)".*/\1/p' scopegrep/Cargo.toml | head -n 1`; \
+	@tool=`$(MAKE) -s tag-tool TAG="$(TAG)"` || exit 2; \
+	expected=`$(MAKE) -s tag-version TAG="$(TAG)"` || exit 2; \
+	if [ ! -f "$$tool/Cargo.toml" ]; then \
+	  echo "check-version: タグ $(TAG) が指すツール $$tool が無い（$$tool/Cargo.toml が見つからない）"; exit 2; \
+	fi; \
+	bin=`sed -n 's/^version = "\([^"]*\)".*/\1/p' "$$tool/Cargo.toml" | head -n 1`; \
+	core=`sed -n 's/^version = "\([^"]*\)".*/\1/p' "$$tool-core/Cargo.toml" | head -n 1`; \
+	dep=`sed -n "s/^$$tool-core = .*version = \"\([^\"]*\)\".*/\1/p" "$$tool/Cargo.toml" | head -n 1`; \
 	status=0; \
-	for pair in "scopegrep の版:$$bin" "scopegrep-core の版:$$core" "scopegrep の依存宣言:$$dep"; do \
+	for pair in "$$tool の版:$$bin" "$$tool-core の版:$$core" "$$tool の依存宣言:$$dep"; do \
 	  found="$${pair#*:}"; \
 	  if [ "$$found" != "$$expected" ]; then \
 	    echo "check-version: タグ $(TAG) に対し $${pair%%:*}が $$found（期待: $$expected）"; \
@@ -106,7 +136,7 @@ check-version:
 	  echo "check-version: 版の正本は Cargo.toml。タグではなく Cargo.toml を直すか、タグを打ち直す"; \
 	  exit 1; \
 	fi; \
-	echo "check-version: タグ $(TAG) と Cargo.toml の版 $$expected は一致する"
+	echo "check-version: タグ $(TAG) と $$tool の Cargo.toml の版 $$expected は一致する"
 
 ## package — crates.io に出す .crate を作れることを確かめる（手順は docs/release.md）。
 ##
@@ -124,8 +154,10 @@ check-version:
 ##
 ## 🔑 作業ツリーが汚れていると cargo が拒む。commit してから打つこと
 ##    （--allow-dirty で黙らせない。何を配ったかが git で辿れなくなる）。
+## 🔑 TOOL= で出すツールを選ぶ（既定 scopegrep）。`make package TOOL=fleet-top`。
+TOOL ?= scopegrep
 package:
-	$(CARGO) package -p scopegrep-core -p scopegrep --locked
+	$(CARGO) package -p $(TOOL)-core -p $(TOOL) --locked
 
 clean:
 	$(CARGO) clean
