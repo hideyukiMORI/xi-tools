@@ -28,6 +28,10 @@ arguments:
 
 options:
     -i, --ignore-case   大文字小文字を無視して照合する（列は原文の位置）
+    -e, --regex <re>    固定文字列の代わりに正規表現で探す。<needle> とは排他で、
+                        付けたときは位置引数がすべて <path> になる。
+                        一致は行単位（^ $ は行の先頭と末尾）。
+                        --features regex を付けてビルドした binary だけが使える
     --scope <pattern>   所属で絞る。JSON Pointer の形で、* は1セグメント・
                         ** は0個以上（例: /jobs/*/steps/*/if）
     --json              1ヒット1行の JSON Lines で出す
@@ -64,9 +68,21 @@ pub(crate) fn help() {
     ));
 }
 
+/// この binary が正規表現を持っているか。**構成が版と同じ重さの事実である**（ADR 0002）。
+///
+/// 🔴 同じ版で振る舞いが違う binary が2つ在るので、`--version` に出す。
+/// 出さないと、`-e` が失敗した人が「壊れている」と読む。
+#[cfg(feature = "regex")]
+const REGEX_STATE: &str = "on";
+#[cfg(not(feature = "regex"))]
+const REGEX_STATE: &str = "off";
+
 /// 版を標準出力へ出す。版の正本は `Cargo.toml` である。
 pub(crate) fn version() {
-    to_stdout(&format!("scopegrep {}", env!("CARGO_PKG_VERSION")));
+    to_stdout(&format!(
+        "scopegrep {} (regex: {REGEX_STATE})",
+        env!("CARGO_PKG_VERSION")
+    ));
 }
 
 /// 読めなかったファイルを標準エラーへ報告する。
@@ -88,7 +104,7 @@ pub(crate) fn unparsable(file: &Path, error: &ParseError) {
 }
 
 /// 引数が読めなかったことを標準エラーへ報告する。
-pub(crate) fn usage(error: UsageError) {
+pub(crate) fn usage(error: &UsageError) {
     to_stderr(&format!("{error}"));
 }
 

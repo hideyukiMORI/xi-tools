@@ -49,9 +49,7 @@ impl ScalarLine {
         if !query.covers(&self.path) {
             return None;
         }
-        let column = self
-            .column
-            .locate(&self.text, query.needle(), query.case())?;
+        let column = self.column.locate(&self.text, query.matcher())?;
         Some(Hit::in_value(
             self.path.clone(),
             self.line,

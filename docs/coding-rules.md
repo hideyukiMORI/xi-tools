@@ -379,13 +379,23 @@ lint 違反ではなく**名前解決エラー**になる
 
 ### ARC-004 — 外部依存は許可制
 
-- 依存を足すときは ADR を1本立てる。**現在の依存は 0 である**
-- バージョンに `*` を書かない（`clippy::wildcard_dependencies`）
+- 依存を足すときは ADR を1本立てる。**既定ビルドの依存は 0 である。**
+  opt-in の `regex`（Cargo feature）だけが例外で、根拠は
+  [ADR 0002](adr/0002-regex-is-an-opt-in-feature.md)。
+  `scopegrep-core` は構成によらず `no_std`・依存 0 である
+- バージョンに `*` を書かない（`clippy::wildcard_dependencies`）。
+  版の固定は `Cargo.lock` の仕事であり、マニフェストに `=` を書かない
 - `Cargo.lock` をコミットする。ゲートは `--locked` で走り、
   lock が更新される状態でのゲート通過を拒む
+- ライセンスは**許可制**である。`deny.toml` の `allow` に**実際に使っているものだけ**を書く。
+  🔑 `make deny` は `--deny license-not-encountered` を付けて走るので、
+  **使っていないライセンスを先回りで許可すると落ちる**。許可一覧が実態から離れられない
+- 🔴 opt-in の feature は**検査対象から漏れやすい**。`deny.toml` の
+  `[graph] all-features = true` と `make check` の2構成実行が、それを塞いでいる
 
-- 機械強制: **active**（`wildcard_dependencies`・`--locked`）
-- 機械強制: **planned**（ライセンス・脆弱性・重複バージョンの検査＝`cargo-deny` の導入）
+- 機械強制: **active**（`wildcard_dependencies`・`--locked`・
+  ライセンス／脆弱性／重複バージョン／取得元＝`make deny`（`cargo-deny`）。
+  発火の証明は [P-18〜P-20](quality/gate-proofs.md)）
 
 ---
 
@@ -530,7 +540,6 @@ Rust の慣習なので、この打ち切りで足りる。
 | `clippy::unused_results` / `unused_results` | 戻り値のある式文すべてに `let _ =` を要求する。重要な取りこぼしは `#[must_use]` と `unused_must_use` が既に捕まえており、残りは雑音である |
 | waiver 台帳（NENE-PIXEL の `WVR-NNNN`） | **Rust では制度の大半をコンパイラが執行している。** forbid 層は例外の申請窓口自体が存在せず、deny 層の `#[expect]` は理由が必須で、不要になれば失敗する。台帳は「機械が見ていない抑制」を人手で追うための仕組みであり、その対象がここには無い。**必要になったら（＝forbid を deny に降ろす判断をしたら）ADR で導入する** |
 | `rustfmt.toml` | 整形の選択肢を作る。既定のまま使うことが「一つの手段」である |
-| `cargo-deny` | 現在の依存が 0 なので、検査対象が存在しない。**依存を1つ足す ADR と同時に導入する**（ARC-004） |
 
 ---
 

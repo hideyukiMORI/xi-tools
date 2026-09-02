@@ -1,6 +1,6 @@
 //! 1 始まりの桁（文字数）。
 
-use crate::case_match::CaseMatch;
+use crate::matcher::Matcher;
 
 /// 1 始まりの桁。
 ///
@@ -35,14 +35,14 @@ impl Column {
         )
     }
 
-    /// この桁から始まる `text` の中で、`needle` が始まる桁。含まなければ `None`。
+    /// この桁から始まる `text` の中で、`matcher` が当たる桁。当たらなければ `None`。
     ///
     /// 🔑 バイト位置ではなく**文字数**で数える。ここを間違えると、非 ASCII を含む
     /// 行だけ桁がずれる（設計メモ「D-2 実測」で他のパーサに実際にあった癖である）。
-    /// 数え方は `case` によらず同じで、**数えるのは常に原文**である
-    /// （[`CaseMatch`] の doc を見よ）。
-    pub(crate) fn locate(self, text: &str, needle: &str, case: CaseMatch) -> Option<Self> {
-        Some(self.shift(case.locate(text, needle)?))
+    /// 数え方は照合の種類によらず同じで、**数えるのは常に原文**である
+    /// （[`Matcher::find`] の doc を見よ）。
+    pub(crate) fn locate(self, text: &str, matcher: &dyn Matcher) -> Option<Self> {
+        Some(self.shift(matcher.find(text)?))
     }
 }
 
@@ -56,6 +56,12 @@ impl core::fmt::Display for Column {
 mod tests {
     use super::Column;
     use crate::case_match::CaseMatch;
+    use crate::fixed_string::FixedString;
+
+    /// 固定文字列の照合。桁の数え方は照合の種類によらないので、ここではこれで足りる。
+    fn needle(text: &str, case: CaseMatch) -> FixedString {
+        FixedString::new(text, case)
+    }
 
     #[test]
     fn zero_is_not_a_column() {
@@ -78,11 +84,11 @@ mod tests {
         let column = Column::after(2_usize);
         assert_eq!(
             column
-                .locate("あいう x", "x", CaseMatch::Exact)
+                .locate("あいう x", &needle("x", CaseMatch::Exact))
                 .map(Column::get),
             Some(7_u32)
         );
-        assert_eq!(column.locate("abc", "z", CaseMatch::Exact), None);
+        assert_eq!(column.locate("abc", &needle("z", CaseMatch::Exact)), None);
     }
 
     /// 大文字小文字を無視しても、桁の数え方は変わらない。
@@ -91,7 +97,7 @@ mod tests {
         let column = Column::after(2_usize);
         assert_eq!(
             column
-                .locate("あいう X", "x", CaseMatch::Fold)
+                .locate("あいう X", &needle("x", CaseMatch::Fold))
                 .map(Column::get),
             Some(7_u32)
         );

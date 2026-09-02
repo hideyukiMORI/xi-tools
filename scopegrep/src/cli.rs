@@ -1,7 +1,8 @@
 //! 引数の解析。**手書きである**（依存 0・ARC-004）。
 //!
 //! `clap` を使うと引数の形を宣言で書けるが、依存を1つ増やす ADR になる。
-//! この道具の引数は `[-i] [--json] [--comments] [--scope <pattern>] <needle> [<path>...]`
+//! この道具の引数は
+//! `[-i] [--json] [--comments] [--scope <pattern>] (<needle> | -e <regex>) [<path>...]`
 //! だけなので、まだ要らない。
 
 use std::path::PathBuf;
@@ -25,7 +26,8 @@ use crate::usage_error::UsageError;
 ///
 /// # Errors
 ///
-/// 知らない旗・needle が無い・`--scope` のパターンが読めない場合は
+/// 知らない旗・needle が無い・`--scope` のパターンが読めない・
+/// 正規表現が読めない（または正規表現なしでビルドされている）場合は
 /// [`UsageError`] を返す。
 pub(crate) fn parse(arguments: &[String]) -> Result<Invocation, UsageError> {
     let (head, tail) = split_at_separator(arguments);
@@ -33,6 +35,7 @@ pub(crate) fn parse(arguments: &[String]) -> Result<Invocation, UsageError> {
     let mut kinds = SearchScope::Values;
     let mut case = CaseMatch::Exact;
     let mut within: Option<ScopePattern> = None;
+    let mut expression: Option<&str> = None;
     let mut positional: Vec<&str> = Vec::new();
 
     let mut rest = head.iter();
@@ -42,6 +45,7 @@ pub(crate) fn parse(arguments: &[String]) -> Result<Invocation, UsageError> {
             Argument::Comments => kinds = SearchScope::ValuesAndComments,
             Argument::IgnoreCase => case = CaseMatch::Fold,
             Argument::Scope => within = Some(read_pattern(&mut rest, within.is_some())?),
+            Argument::Regex => expression = Some(read_expression(&mut rest, expression.is_some())?),
             Argument::Help => return Ok(Invocation::Help),
             Argument::Version => return Ok(Invocation::Version),
             Argument::Positional(text) => positional.push(text),
@@ -50,9 +54,9 @@ pub(crate) fn parse(arguments: &[String]) -> Result<Invocation, UsageError> {
     }
     positional.extend(tail.iter().map(String::as_str));
 
-    let (needle, paths) = positional.split_first().ok_or(UsageError::Arguments)?;
+    let (query, paths) = seek(expression, &positional, case)?;
     Ok(Invocation::Search(Options::new(
-        build(needle, case, kinds, within),
+        widen(query, kinds, within),
         places(paths),
         format,
     )))
@@ -70,21 +74,71 @@ fn read_pattern(rest: &mut Iter<'_, String>, given: bool) -> Result<ScopePattern
     ScopePattern::parse(text).map_err(UsageError::Scope)
 }
 
-/// 旗から検索条件を組む。**既定から広げる方向にしか動かない**。
-fn build(needle: &str, case: CaseMatch, kinds: SearchScope, within: Option<ScopePattern>) -> Query {
-    let mut query = Query::new(needle);
+/// `-e` の値を読む。`--scope` と**同じ規則**である（2回目は誤り）。
+fn read_expression<'a>(rest: &mut Iter<'a, String>, given: bool) -> Result<&'a str, UsageError> {
+    if given {
+        return Err(UsageError::RepeatedRegex);
+    }
+    rest.next()
+        .map(String::as_str)
+        .ok_or(UsageError::RegexWithoutPattern)
+}
+
+/// 探し方と、探す場所に分ける。
+///
+/// 🔴 **`-e` と `<needle>` は排他である。** `-e` があれば位置引数は**すべてパス**になり、
+/// 無ければ先頭の位置引数が needle になる。「先頭のパスが黙って正規表現に化ける」形にしない。
+fn seek<'a>(
+    expression: Option<&str>,
+    positional: &'a [&'a str],
+    case: CaseMatch,
+) -> Result<(Query, &'a [&'a str]), UsageError> {
+    if let Some(pattern) = expression {
+        return Ok((compile(pattern, case)?, positional));
+    }
+    let (needle, paths) = positional.split_first().ok_or(UsageError::Arguments)?;
+    Ok((fixed(needle, case), paths))
+}
+
+/// 固定文字列の検索条件。
+fn fixed(needle: &str, case: CaseMatch) -> Query {
+    let query = Query::new(needle);
     match case {
-        CaseMatch::Exact => {}
-        CaseMatch::Fold => query = query.ignoring_case(),
+        CaseMatch::Exact => query,
+        CaseMatch::Fold => query.ignoring_case(),
     }
-    match kinds {
-        SearchScope::Values => {}
-        SearchScope::ValuesAndComments => query = query.including_comments(),
+}
+
+/// 正規表現の検索条件。**feature `regex` を付けたビルドだけが組める**。
+#[cfg(feature = "regex")]
+fn compile(pattern: &str, case: CaseMatch) -> Result<Query, UsageError> {
+    use crate::regex_matcher::RegexMatcher;
+
+    match RegexMatcher::new(pattern, case) {
+        Ok(matcher) => Ok(Query::with_matcher(Box::new(matcher))),
+        Err(reason) => Err(UsageError::Regex(reason.to_string())),
     }
-    if let Some(pattern) = within {
-        query = query.within(pattern);
+}
+
+/// 🔴 正規表現なしでビルドされた binary では、`-e` は**必ず失敗する**。
+///
+/// 黙って固定文字列として扱わない（ADR 0002 決定 3）。**静かに意味が変わる**ほうが、
+/// 「使えない」と言われるより悪い。
+#[cfg(not(feature = "regex"))]
+fn compile(_pattern: &str, _case: CaseMatch) -> Result<Query, UsageError> {
+    Err(UsageError::RegexUnsupported)
+}
+
+/// 旗で検索条件を広げる。**既定から広げる方向にしか動かない**。
+fn widen(query: Query, kinds: SearchScope, within: Option<ScopePattern>) -> Query {
+    let widened = match kinds {
+        SearchScope::Values => query,
+        SearchScope::ValuesAndComments => query.including_comments(),
+    };
+    match within {
+        Some(pattern) => widened.within(pattern),
+        None => widened,
     }
-    query
 }
 
 /// 探す場所。**省略されたら「今いる場所」**（空のパス）1つになる。
@@ -282,6 +336,90 @@ mod tests {
         assert_eq!(
             parse(&words(&["--scope", "--json", "x", "a.yml"])),
             Err(UsageError::Scope(ScopePatternError::NotRooted))
+        );
+    }
+
+    // ── `-e` / `--regex`（正規表現）───────────────────────────────────────
+
+    /// 🔴 **`-e` を付けたら位置引数はすべてパスである。** needle の位置が無くなる。
+    /// ここを「先頭は needle のまま」にすると、`-e 'x' a.yml` の `a.yml` が
+    /// 検索語として読まれる。
+    #[cfg(feature = "regex")]
+    #[test]
+    fn regex_takes_the_needle_slot_away() {
+        let found = options(&["-e", "cancel+ed", "a.yml", "b.yml"]);
+        assert_eq!(
+            found.paths(),
+            [PathBuf::from("a.yml"), PathBuf::from("b.yml")]
+        );
+    }
+
+    /// `-e` だけならパスは省略されている（今いる場所）。
+    #[cfg(feature = "regex")]
+    #[test]
+    fn regex_without_a_path_walks_the_current_place() {
+        assert_eq!(paths(&["-e", "cancel+ed"]), [PathBuf::new()]);
+    }
+
+    /// `-e` と `--regex` は同じ意味である。
+    ///
+    /// 🔑 ここだけ**振る舞いで**確かめる。渡した照合どうしは同一性でしか比べられないので、
+    /// `assert_eq!` で 2 つの `Query` を比べても「別物」としか言えない。
+    #[cfg(feature = "regex")]
+    #[test]
+    fn regex_has_two_spellings_and_one_meaning() {
+        let source = "steps:\n  - name: Build\n    if: ${{ !cancelled() }}\n";
+        let document = scopegrep_core::parse(source).expect("読めるはず");
+        for spelling in ["-e", "--regex"] {
+            let found = document.search(options(&[spelling, "cancel+ed\\(\\)", "a.yml"]).query());
+            assert_eq!(found.len(), 1, "{spelling} が当たっていない");
+        }
+    }
+
+    /// `-i` は正規表現にも効く（組み立て時に渡している）。
+    #[cfg(feature = "regex")]
+    #[test]
+    fn ignore_case_reaches_the_regex() {
+        let source = "steps:\n  - name: Build\n    if: ${{ !cancelled() }}\n";
+        let document = scopegrep_core::parse(source).expect("読めるはず");
+        assert_eq!(
+            document
+                .search(options(&["-e", "CANCEL+ED", "a.yml"]).query())
+                .len(),
+            0
+        );
+        assert_eq!(
+            document
+                .search(options(&["-i", "-e", "CANCEL+ED", "a.yml"]).query())
+                .len(),
+            1
+        );
+    }
+
+    /// 🔴 正規表現なしでビルドされた binary は、`-e` を**黙って固定文字列にしない**。
+    #[cfg(not(feature = "regex"))]
+    #[test]
+    fn a_regex_is_refused_when_the_binary_was_built_without_it() {
+        assert_eq!(
+            parse(&words(&["-e", "cancel+ed", "a.yml"])),
+            Err(UsageError::RegexUnsupported)
+        );
+    }
+
+    /// 🔑 2回書いたら後勝ちにしない（`--scope` と同じ規則）。
+    #[test]
+    fn a_repeated_regex_is_an_error_not_an_overwrite() {
+        assert_eq!(
+            parse(&words(&["-e", "a", "-e", "b", "f.yml"])),
+            Err(UsageError::RepeatedRegex)
+        );
+    }
+
+    #[test]
+    fn a_regex_without_a_pattern_is_an_error() {
+        assert_eq!(
+            parse(&words(&["x", "a.yml", "-e"])),
+            Err(UsageError::RegexWithoutPattern)
         );
     }
 

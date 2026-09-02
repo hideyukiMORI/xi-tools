@@ -7,6 +7,10 @@
 //! 🔑 例が README から消えても気づけるように、`$ scopegrep` の例が
 //! 1つも無ければ失敗する。「検査が空振りしても緑になる」形にしない（QLT-007）。
 //!
+//! 🔴 **飛ばしてよい例は1種類だけである**——正規表現なしでビルドされた binary での
+//! `-e` の例（ADR 0002）。`make check` は feature 付きでも走るので、
+//! **どの例も、いずれかの構成では必ず実行される**。飛ばした結果 1 件も実行されなければ失敗する。
+//!
 //! コマンドはリポジトリのルートを cwd にして走らせる。README の例が
 //! ルートから打った形で書かれているからで、cwd を変えると例の意味が変わる。
 
@@ -141,6 +145,22 @@ fn executable(program: &str) -> Option<&'static str> {
     }
 }
 
+/// この構成では実行できない例か。
+///
+/// 🔴 **飛ばしてよい理由は1つだけである**——正規表現なしでビルドされた binary で
+/// `-e` の例を実行しても、それは README の誤りではなく構成の話だからである。
+/// `make check` は feature 付きでも走るので、**この例が検証されない構成は無い**。
+/// 飛ばした結果「1つも検証されなかった」なら、下のテストが落ちる。
+///
+/// 🔑 `--` より後ろの `-e` は位置引数だが、README にそう書く例は無い
+/// （書きたくなったら、README ではなくここを直すべきかを先に考える）。
+fn skipped(arguments: &[String]) -> bool {
+    cfg!(not(feature = "regex"))
+        && arguments
+            .iter()
+            .any(|word| word == "-e" || word == "--regex")
+}
+
 /// 例1件を、リポジトリのルートを cwd にして実行する。
 fn run(root: &Path, arguments: &[String]) -> Option<Output> {
     let (program, rest) = arguments.split_first()?;
@@ -164,8 +184,12 @@ fn every_console_example_matches_the_real_output() {
         "README に console ブロックの例が1つも無い"
     );
 
+    let mut verified = 0_usize;
     for example in &found {
         let arguments = split_arguments(example.command());
+        if skipped(&arguments) {
+            continue;
+        }
         let Some(output) = run(&root, &arguments) else {
             panic!(
                 "README {}行目のコマンドを実行できない: $ {}",
@@ -186,7 +210,15 @@ fn every_console_example_matches_the_real_output() {
             "README {}行目の例が標準エラーに書いている",
             example.line()
         );
+        verified = verified.saturating_add(1_usize);
     }
+
+    // 🔴 飛ばした結果として1件も実行されなかったなら、それは緑ではない（QLT-007）。
+    assert!(
+        verified >= 1_usize,
+        "この構成で検証できた例が1つも無い（例 {} 件すべて飛ばされた）",
+        found.len()
+    );
 }
 
 // ── 2. 例そのものが消えたら気づく ───────────────────────────────────────────
@@ -249,4 +281,18 @@ fn only_console_blocks_are_executed() {
         "console ブロックの例だけを拾う"
     );
     assert_eq!(found.first().map(Example::expected), Some("1:x\n"));
+}
+
+/// 🔴 飛ばしてよいのは「この構成では実行できない例」だけである。
+/// ここが緩むと、検証されない例が README に残っていることに誰も気づけなくなる。
+#[test]
+fn only_regex_examples_are_skipped_and_only_without_the_feature() {
+    let plain = split_arguments("scopegrep 'cancelled()' scopegrep-core/testdata/");
+    let expression = split_arguments("scopegrep -e 'cancel+ed' scopegrep-core/testdata/");
+    assert!(!skipped(&plain), "正規表現でない例は構成によらず実行する");
+    assert_eq!(
+        skipped(&expression),
+        cfg!(not(feature = "regex")),
+        "-e の例は、正規表現なしでビルドしたときだけ飛ばす"
+    );
 }

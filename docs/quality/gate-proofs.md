@@ -30,6 +30,18 @@
 | P-10 | rustfmt 差分を残す | QLT-004 | `Diff in .../scopegrep/src/main.rs:33` |
 | P-11 | 認知的複雑度 25 の関数 | RS-011 | `error: the function has a cognitive complexity of (25/10)` |
 | P-17 | カバレッジ下限を 100 にして `make coverage` | QLT-008 | 終了コード 1（`TOTAL … 92.21%` の表の後、**cargo-llvm-cov 0.9.0 はメッセージを出さない**。下限 90 では終了コード 0） |
+| P-18 | `deny.toml` の `allow` から `MIT` を消して `make deny` | ARC-004 | ``error[rejected]: failed to satisfy license requirements`` ／ ``license = "MIT"`` → ``rejected: license is not explicitly allowed``（`scopegrep` / `scopegrep-core` / `xtask` の3件）。`licenses FAILED`・終了コード 2 |
+| P-19 | `allow = []` にして `make deny` | ARC-004 | 上と同じ形で**6件**。`regex v1.13.1` / `regex-automata v0.4.18` / `regex-syntax v0.8.11` が加わる（`registry/src/…/regex-1.13.1/Cargo.toml:51:12` を指す） |
+| P-20 | 使っていない `Unicode-3.0` を `allow` に足して `make deny` | ARC-004 | ``error[license-not-encountered]: license was not encountered`` ／ ``allow = ["MIT", "Apache-2.0", "Unicode-3.0"]`` の `Unicode-3.0` に ``unmatched license allowance``。`licenses FAILED`・終了コード 2 |
+
+🔑 **P-19 が証明しているのは「opt-in の依存も検査されている」ことである。**
+`regex` は既定 off の feature なので、素の解決グラフで `cargo deny` を走らせると
+**一度も見られないまま緑になる**。`deny.toml` の `[graph] all-features = true` が
+それを塞いでいることを、実際に `regex` 系3件が落ちることで確かめた。
+
+🔑 **P-20 は「許可一覧が実態から離れられない」ことの証明である。**
+`make deny` は `--deny license-not-encountered` を付けて走るので、
+先回りで許可を書いておく（＝依存が増えても気づけない状態を作る）ことができない。
 
 **復旧確認**: 全ケースでファイルを戻したあと `make check` が緑に戻ることを確認済み。
 
@@ -92,6 +104,22 @@ assertion `left == right` failed: README 50行目の例が実際の出力と違�
 空振りしないことの確認: `$ scopegrep` の例が 0 件になったら失敗する
 （`the_readme_keeps_at_least_one_scopegrep_example`）。**例が消えたときに
 「全ての例が一致した」と言って緑になる形にしない。**
+
+#### `-e` の例が「飛ばされたまま緑」にならないこと（P-21）
+
+opt-in の feature が入ったことで、README に**片方の構成でしか実行できない例**が生まれた。
+飛ばす仕組みを入れると「飛ばしているから緑」が起こりうるので、実際に確かめた。
+
+`-e` の例の出力を `steps[1]` → `steps[9]` に1文字書き換えて、両構成で走らせた。
+
+| 構成 | 結果 |
+| --- | --- |
+| `cargo test -p scopegrep --test readme --features regex` | ``assertion `left == right` failed: README 118行目の例が実際の出力と違う: $ scopegrep -e 'npm (ci\|test)' scopegrep-core/testdata/`` |
+| `cargo test -p scopegrep --test readme`（既定） | `test result: ok. 6 passed`（`-e` の例は飛ばし、他の例で検証済み件数が 1 以上あるので緑） |
+
+🔑 **`make check` は両構成で `test` を回す**ので、`-e` の例が一度も実行されない経路は無い。
+加えて、飛ばした結果 1 件も実行されなければ
+`この構成で検証できた例が1つも無い` で落ちる。
 
 ## この手順で見つかった実際の欠陥
 

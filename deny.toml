@@ -1,0 +1,45 @@
+# cargo-deny — 依存の許可制を機械が見る（ARC-004 / ADR 0002）。
+#
+# 🔴 検査の入口は `make deny`（`make check` に含まれる）。CI 側にだけ検査を書かない（QLT-003）。
+# 🔴 ここを緩める変更は ADR を要する（QLT-005）。
+#
+# 🔑 `all-features = true` にしてあるのが要点である。既定ビルドの依存は 0 なので、
+#    素の解決グラフで検査すると **opt-in の `regex` を一度も見ないまま緑になる**。
+#    「検査の最大の失敗は、見逃したまま常に緑を返すこと」（QLT-007）。
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# 脆弱性は常に失敗である（version 2 では設定項目ですらない）。
+# 放棄されたクレートと yanked された版も、警告ではなく失敗にする。
+unmaintained = "all"
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# 🔴 **実際に使っているライセンスだけを書く。** 使っていないものを先回りで許可すると、
+#    依存が増えたときに気づけない（許可済みなので何も起きない）。
+#    現在の実測（`cargo deny --all-features list`）:
+#      MIT        — scopegrep / scopegrep-core / xtask / regex / regex-automata / regex-syntax
+#      Apache-2.0 — regex / regex-automata / regex-syntax（MIT との二択）
+#    GPL 系は書いていない。書いていないものは失敗する（許可制）。
+#
+#    🔑 `make deny` は `--deny license-not-encountered` を付けて走る。
+#    **使っていないライセンスをここに書くと落ちる**ので、この一覧は実態から離れられない。
+allow = ["MIT", "Apache-2.0"]
+confidence-threshold = 0.8
+
+[bans]
+# 🔴 同じクレートの複数版を許さない。単一バイナリで配る前提（ARC-004）に対して、
+#    重複は「どちらが効いているか分からない」を持ち込む。
+multiple-versions = "deny"
+# 版の `*` は clippy::wildcard_dependencies も見るが、ここでも塞ぐ。
+wildcards = "deny"
+
+[sources]
+# crates.io 以外から取らない。git 直参照は「lock はあるが由来が追えない」依存になる。
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

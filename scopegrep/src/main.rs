@@ -27,6 +27,10 @@ mod options;
 mod outcome;
 mod output;
 mod output_format;
+// 🔴 `#[cfg(feature)]` の分岐は**バイナリ側だけ**に閉じる（ADR 0002 決定 2）。
+//    `scopegrep-core` は構成によらず同じコードである。
+#[cfg(feature = "regex")]
+mod regex_matcher;
 mod render;
 mod run;
 mod usage_error;
@@ -53,7 +57,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            output::usage(error);
+            output::usage(&error);
             Outcome::Failed.code()
         }
     }

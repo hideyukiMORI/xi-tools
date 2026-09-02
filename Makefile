@@ -8,12 +8,16 @@
 #    2箇所に書くと、片方だけ上げられて「手元では通る」が生まれる。
 CARGO ?= cargo
 
-.PHONY: all check fmt fmt-check lint test conformance coverage build doc-check clean prove
+.PHONY: all check fmt fmt-check lint test conformance coverage deny build doc-check clean prove
+
+## 🔴 opt-in の feature（ADR 0002）。**片方だけ緑の状態を作らない**ので、
+##    lint と test は既定構成と FEATURES 構成の両方で走らせる。
+FEATURES ?= scopegrep/regex
 
 all: check
 
 ## check — 提出前に必ず通すもの。CI もこれを呼ぶ
-check: fmt-check lint test conformance coverage doc-check build
+check: fmt-check lint test conformance coverage deny doc-check build
 
 ## fmt — rustfmt に設定ファイルを置かない。整形の流儀を議論する余地をそもそも作らない
 fmt:
@@ -25,12 +29,15 @@ fmt-check:
 ## lint — 規則との対応は docs/coding-rules.md
 ## 🔴 --all-targets を外さないこと。外すとテストコードが検査対象から落ちる。
 ## 🔴 --locked は Cargo.lock が更新される状態でのゲート通過を拒む（QLT-004）。
+## 🔴 2回目（--features）を CI ではなくここに置く。CI 側にだけ検査を作らない（QLT-003）。
 lint:
 	$(CARGO) clippy --workspace --all-targets --locked -- -D warnings
+	$(CARGO) clippy --workspace --all-targets --locked --features $(FEATURES) -- -D warnings
 
-## test — 🔴 --locked は同上
+## test — 🔴 --locked は同上。両構成で回す（ADR 0002 決定 5）。
 test:
 	$(CARGO) test --workspace --locked
+	$(CARGO) test --workspace --locked --features $(FEATURES)
 
 ## conformance — このリポジトリ固有の規約検査（CNF-0xx / xtask）
 ## lint が見ないものだけを見る。規則の正本は docs/coding-rules.md。
@@ -45,7 +52,15 @@ conformance:
 COVERAGE_MIN_LINES ?= 90
 coverage:
 	@command -v cargo-llvm-cov >/dev/null || { echo "coverage: cargo-llvm-cov が無い。cargo install cargo-llvm-cov --locked"; exit 2; }
-	$(CARGO) llvm-cov --workspace --locked --summary-only --fail-under-lines $(COVERAGE_MIN_LINES)
+	$(CARGO) llvm-cov --workspace --locked --features $(FEATURES) --summary-only --fail-under-lines $(COVERAGE_MIN_LINES)
+
+## deny — 依存の許可制（ARC-004 / ADR 0002）。方針の正本は deny.toml。
+## 🔴 --deny license-not-encountered を外さないこと。外すと deny.toml の allow に
+##    使っていないライセンスを書き足せてしまい、依存が増えたときに気づけなくなる。
+## 導入: cargo install cargo-deny --locked
+deny:
+	@command -v cargo-deny >/dev/null || { echo "deny: cargo-deny が無い。cargo install cargo-deny --locked"; exit 2; }
+	$(CARGO) deny --locked check --deny license-not-encountered
 
 ## doc-check — rustdoc の警告（壊れた intra-doc link 等）を失敗にする
 doc-check:
