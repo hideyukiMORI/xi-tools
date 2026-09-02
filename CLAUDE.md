@@ -40,8 +40,9 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 | --- | --- |
 | workspace の足場・CI | ✅ 完了（2026-09-01・`c1bbe4a`） |
 | コーディング規約と機械強制 | ✅ 完了（2026-09-02・`docs/coding-rules.md` / `xtask`） |
-| `scopegrep` | ✅ **0.1.0 公開済み**（2026-09-02・crates.io / GitHub Release）。機能追加は施主判断で停止中 |
-| `fleet-top` | ✅ **0.1.0 公開済み**（2026-09-02・crates.io / GitHub Release `fleet-top-v0.1.0`）。60 リポ 1.6〜1.8 s 実測 |
+| `scopegrep` | ✅ **0.1.1 公開済み**（2026-09-02・crates.io / GitHub Release `scopegrep-v0.1.1`）。機能追加は施主判断で停止中 |
+| `fleet-top` | ✅ **0.1.1 公開済み**（2026-09-02・crates.io / GitHub Release `fleet-top-v0.1.1`）。60 リポ 1.6〜1.8 s 実測 |
+| 利用者向け文言 | ✅ 英語（0.1.1〜）。コメント・doc・テスト名は日本語のまま（規約） |
 | 候補一覧 | `docs/design/candidates.md`（作らないと決めたものも含む） |
 
 **動くもの:** `make check`（fmt / clippy / test / conformance / coverage / deny / doc / build）と CI、`xtask`、
