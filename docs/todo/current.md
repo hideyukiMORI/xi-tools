@@ -42,8 +42,10 @@
 | README（両言語）・`docs/benchmarks/fleet-top.md`・CHANGELOG・ARC-001 の記述更新 | ✅ 2026-09-02（設計リナが直接書いた。作業指示 4 は出していない） |
 | PR #8 → CI → マージ | ✅ 2026-09-02 |
 | 出す判断 | ✅ 施主「出していい」（2026-09-02）。第三者が使える前提（`gh` ログイン済み・直下に並ぶ・GitHub のみ）と、文言が日本語であることを説明した上で |
-| 版 0.1.0・タグ方式 `<tool>-vX.Y.Z`・Release workflow の一般化・手順書 | 🔨 `release/fleet-top-0.1.0` |
-| publish（core → bin）→ タグ `fleet-top-v0.1.0` → Release workflow | 🔲 マージ後 |
+| 版 0.1.0・タグ方式 `<tool>-vX.Y.Z`・Release workflow の一般化・手順書 | ✅ PR #9（2026-09-02） |
+| publish（core → bin）→ タグ `fleet-top-v0.1.0` → Release workflow | ✅ 2026-09-02。[crates.io `fleet-top`](https://crates.io/crates/fleet-top) / [`fleet-top-core`](https://crates.io/crates/fleet-top-core)・[Release](https://github.com/hideyukiMORI/xi-tools/releases/tag/fleet-top-v0.1.0) 3 OS。手元は crates.io 版に入れ替え済み |
+
+**`fleet-top` も出た。次の 1 手は無い**（`scopegrep` と同じく、困った人が現れてから）。
 
 ### 後で判断すること
 
