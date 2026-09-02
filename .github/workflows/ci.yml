@@ -24,6 +24,10 @@ jobs:
           cargo --version
           cargo clippy --version
 
+      # make coverage が使う。検査そのものは Makefile にあり、ここは道具の導入だけ（QLT-003）。
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:

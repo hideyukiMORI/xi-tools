@@ -29,6 +29,7 @@
 | P-9 | `mod.rs` を作る | RS-012 | ``error: `mod.rs` files are not allowed, found `scopegrep/src/probe9/mod.rs` `` |
 | P-10 | rustfmt 差分を残す | QLT-004 | `Diff in .../scopegrep/src/main.rs:33` |
 | P-11 | 認知的複雑度 25 の関数 | RS-011 | `error: the function has a cognitive complexity of (25/10)` |
+| P-17 | カバレッジ下限を 100 にして `make coverage` | QLT-008 | 終了コード 1（`TOTAL … 92.21%` の表の後、**cargo-llvm-cov 0.9.0 はメッセージを出さない**。下限 90 では終了コード 0） |
 
 **復旧確認**: 全ケースでファイルを戻したあと `make check` が緑に戻ることを確認済み。
 
