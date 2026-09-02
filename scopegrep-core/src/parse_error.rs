@@ -36,7 +36,7 @@ impl ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}行目: {}", self.line, self.kind)
+        write!(f, "line {}: {}", self.line, self.kind)
     }
 }
 
@@ -57,6 +57,6 @@ mod tests {
             line,
             ParseErrorKind::Malformed(MalformedInput::TabIndentation),
         );
-        assert_eq!(format!("{error}"), "7行目: インデントにタブが混じっている");
+        assert_eq!(format!("{error}"), "line 7: the indentation contains a tab");
     }
 }

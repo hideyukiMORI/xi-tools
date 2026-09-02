@@ -108,7 +108,7 @@ fn warn_truncated(repositories: &[Repository], reports: &[RemoteReport], freshne
         if matches!(state.stale_branches(freshness), StaleCount::Truncated) {
             output::problem(
                 &[repository.name()],
-                "枝が 100 本を超えている。STALE は数えていない",
+                "more than 100 branches; STALE was not counted",
             );
         }
     }
@@ -183,7 +183,7 @@ fn answers(count: usize, outcome: ChunkOutcome) -> Vec<Result<RemoteState, Strin
 /// 失敗の理由 1 行。
 ///
 /// 🔑 [`RemoteError::Rejected`] は **GitHub が書いた原文**である（`Bad credentials` 等）。
-/// `Display` の「GitHub が拒んだ: 」を前に付けると、GitHub の文がもう一度説明されるだけになる。
+/// `Display` の「GitHub rejected the request: 」を前に付けると、GitHub の文がもう一度説明されるだけになる。
 /// 他の 2 つは中身が位置や種別なので、`Display` の言い回しがそのまま理由になる。
 fn why(error: &RemoteError) -> String {
     match *error {
@@ -312,10 +312,13 @@ mod tests {
             why(&RemoteError::Rejected(String::from("Bad credentials"))),
             "Bad credentials"
         );
-        assert_eq!(why(&RemoteError::NotFound), "GitHub にそのリポジトリが無い");
+        assert_eq!(
+            why(&RemoteError::NotFound),
+            "repository not found on GitHub"
+        );
         assert_eq!(
             why(&RemoteError::Malformed(String::from("r0.refs"))),
-            "応答の形が想定と違う: r0.refs"
+            "unexpected response shape: r0.refs"
         );
     }
 }

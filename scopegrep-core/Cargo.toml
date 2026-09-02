@@ -1,6 +1,6 @@
 [package]
 name = "scopegrep-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "no_std core of scopegrep: parses a YAML subset and returns the scope of each hit"
 edition.workspace = true
 license.workspace = true

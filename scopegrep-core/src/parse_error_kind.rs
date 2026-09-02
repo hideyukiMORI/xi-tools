@@ -19,7 +19,7 @@ pub enum ParseErrorKind {
 impl fmt::Display for ParseErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Unsupported(syntax) => write!(f, "{syntax}は読めない構文である"),
+            Self::Unsupported(syntax) => write!(f, "{syntax} is outside the supported subset"),
             Self::Malformed(input) => write!(f, "{input}"),
         }
     }

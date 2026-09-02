@@ -8,6 +8,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 Each tool is versioned and tagged on its own (`<tool>-vX.Y.Z`). The first release of
 `scopegrep` carries the tag `v0.1.0`, from before the scheme had a tool prefix.
 
+## [fleet-top 0.1.1] / [scopegrep 0.1.1] — 2026-09-02
+
+### Changed
+
+- Every user-facing message is now in English: `--help`, usage errors, the reasons written to
+  stderr, and the `Display` of the public error types in both `-core` crates. Behavior, output
+  format and exit codes are unchanged. The two tools share one vocabulary (`line N:`,
+  `given more than once (which one wins is not decided)`, `no … follows`, `cannot read …`)
+
 ## [fleet-top 0.1.0] — 2026-09-02
 
 First release of `fleet-top` (the command) and `fleet-top-core` (its `no_std` core).

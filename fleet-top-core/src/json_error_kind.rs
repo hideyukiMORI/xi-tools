@@ -30,18 +30,18 @@ pub enum JsonErrorKind {
 impl fmt::Display for JsonErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::UnexpectedEnd => f.write_str("入力が値の途中で終わっている"),
-            Self::UnexpectedCharacter(character) => write!(f, "予期しない文字 `{character}`"),
-            Self::InvalidEscape => f.write_str("`\\` の後が JSON のエスケープ文字でない"),
+            Self::UnexpectedEnd => f.write_str("unexpected end of input"),
+            Self::UnexpectedCharacter(character) => write!(f, "unexpected character `{character}`"),
+            Self::InvalidEscape => f.write_str("`\\` is not followed by a JSON escape character"),
             Self::InvalidUnicodeEscape => {
-                f.write_str("`\\u` が 16 進 4 桁でないか、孤立サロゲートである")
+                f.write_str("`\\u` is not 4 hex digits, or is a lone surrogate")
             }
             Self::ControlCharacterInString => {
-                f.write_str("文字列にエスケープされていない制御文字がある")
+                f.write_str("unescaped control character in a string")
             }
-            Self::InvalidNumber => f.write_str("数の書き方が JSON の文法に合わない"),
-            Self::TrailingCharacters => f.write_str("値の後に余分な文字がある"),
-            Self::TooDeep => f.write_str("入れ子が深すぎる"),
+            Self::InvalidNumber => f.write_str("invalid number"),
+            Self::TrailingCharacters => f.write_str("trailing characters after the value"),
+            Self::TooDeep => f.write_str("nesting too deep"),
         }
     }
 }
@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn display_names_the_offending_character() {
         let kind = JsonErrorKind::UnexpectedCharacter('x');
-        assert_eq!(format!("{kind}"), "予期しない文字 `x`");
+        assert_eq!(format!("{kind}"), "unexpected character `x`");
     }
 
     /// 全ての種別が空でない説明を持つ。**説明の無い種別を足せない**ようにする。

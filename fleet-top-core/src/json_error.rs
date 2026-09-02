@@ -37,7 +37,7 @@ impl JsonError {
 
 impl fmt::Display for JsonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}文字目（0 起点）: {}", self.offset, self.kind)
+        write!(f, "at character {}: {}", self.offset, self.kind)
     }
 }
 
@@ -54,7 +54,7 @@ mod tests {
         let error = JsonError::new(12_usize, JsonErrorKind::TrailingCharacters);
         assert_eq!(
             format!("{error}"),
-            "12文字目（0 起点）: 値の後に余分な文字がある"
+            "at character 12: trailing characters after the value"
         );
     }
 

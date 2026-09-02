@@ -21,29 +21,34 @@ use crate::walk;
 /// （使い方の誤りを報告するときと同じ文字列を、2箇所に書かない）。
 const HELP_DETAIL: &str = "\
 arguments:
-    <needle>   探す固定文字列（正規表現ではない・既定では大文字小文字を区別する）
-    <path>     ファイルなら拡張子を問わず読む。
-               ディレクトリなら再帰して .yml / .yaml だけを読む。
-               省略したら今いる場所を再帰する（表示に ./ を付けない）
+    <needle>   the fixed string to search for (not a regular expression;
+               case-sensitive by default)
+    <path>     a file is read whatever its extension.
+               a directory is walked, reading only .yml / .yaml.
+               omitted, it walks where you are (no ./ in the output)
 
 options:
-    -i, --ignore-case   大文字小文字を無視して照合する（列は原文の位置）
-    -e, --regex <re>    固定文字列の代わりに正規表現で探す。<needle> とは排他で、
-                        付けたときは位置引数がすべて <path> になる。
-                        一致は行単位（^ $ は行の先頭と末尾）。
-                        --features regex を付けてビルドした binary だけが使える
-    --scope <pattern>   所属で絞る。JSON Pointer の形で、* は1セグメント・
-                        ** は0個以上（例: /jobs/*/steps/*/if）
-    --json              1ヒット1行の JSON Lines で出す
-    --comments          コメント内の一致も、コメントだと明示して返す
-    --                  以降を旗として解釈しない
-    -h, --help          この使い方を出す
-    -V, --version       版を出す
+    -i, --ignore-case   match case-insensitively (the column stays that of the
+                        original text)
+    -e, --regex <re>    search with a regular expression instead of a fixed
+                        string. exclusive with <needle>; given it, every
+                        positional argument is a <path>.
+                        a match is within one line (^ and $ are the ends of the
+                        line).
+                        only a binary built with --features regex has it
+    --scope <pattern>   narrow by where a value belongs. a JSON Pointer shape,
+                        where * is one segment and ** is zero or more
+                        (example: /jobs/*/steps/*/if)
+    --json              print one hit per line as JSON Lines
+    --comments          return matches inside comments too, marked as comments
+    --                  do not read anything after this as a flag
+    -h, --help          print this usage
+    -V, --version       print the version
 
 exit status:
-    0   1件以上ヒットした
-    1   ヒットが無かった
-    2   エラーがあった（ヒットがあっても 2）";
+    0   at least one hit
+    1   no hit
+    2   an error occurred (2 even when there were hits)";
 
 /// ヒット1件を標準出力へ出す。
 pub(crate) fn hit(file: &Path, found: &Hit, format: OutputFormat) {
@@ -60,10 +65,10 @@ pub(crate) fn hit(file: &Path, found: &Hit, format: OutputFormat) {
 /// 一覧を help に手で書くと、リストを直したときに片方だけ古くなる。
 pub(crate) fn help() {
     to_stdout(&format!(
-        "scopegrep — ヒットした値が、構造のどこに属するかを返す\n\n\
+        "scopegrep — returns where in the structure a matched value belongs\n\n\
          usage:\n    {USAGE}\n    scopegrep --help | --version\n\n\
          {HELP_DETAIL}\n\n\
-         skipped directories (再帰のときだけ。名指しされたパスは読む):\n    {}",
+         skipped directories (only when walking; a named path is read):\n    {}",
         walk::SKIPPED_DIRECTORIES.join(" ")
     ));
 }

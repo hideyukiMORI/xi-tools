@@ -34,15 +34,15 @@ pub enum UnsupportedSyntax {
 impl fmt::Display for UnsupportedSyntax {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match *self {
-            Self::Anchor => "アンカー（&name）",
-            Self::Alias => "エイリアス（*name）",
-            Self::MergeKey => "マージキー（<<:）",
-            Self::ComplexKey => "複合キー（? ）",
-            Self::MultiLineScalar => "複数行にまたがるスカラー",
-            Self::UnclosedFlow => "閉じていないフロー記法（[ や { が閉じない）",
-            Self::MultipleDocuments => "複数ドキュメント（2つ目の --- / ...）",
-            Self::Directive => "ディレクティブ（%YAML 等）",
-            Self::NestedInlineSequence => "1行に入れ子で書かれたシーケンス（- - a）",
+            Self::Anchor => "an anchor (&name)",
+            Self::Alias => "an alias (*name)",
+            Self::MergeKey => "a merge key (<<:)",
+            Self::ComplexKey => "a complex key (? )",
+            Self::MultiLineScalar => "a multi-line scalar",
+            Self::UnclosedFlow => "an unclosed flow style ([ or { never closes)",
+            Self::MultipleDocuments => "a second document (--- / ...)",
+            Self::Directive => "a directive (%YAML and the like)",
+            Self::NestedInlineSequence => "a sequence nested on one line (- - a)",
         };
         f.write_str(text)
     }

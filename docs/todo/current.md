@@ -47,9 +47,17 @@
 
 **`fleet-top` も出た。次の 1 手は無い**（`scopegrep` と同じく、困った人が現れてから）。
 
+## 仕上げ: 利用者向け文言の英語化（施主指示「仕上げる方やって」2026-09-02）
+
+| | 状態 |
+| --- | --- |
+| 作業指示 english-1（scopegrep）・english-2（fleet-top）を並行で | ✅ 2026-09-02。文字列だけ・テスト数不変・`make check` 緑 |
+| 両ツールの用語の突き合わせ（`line N:`・`given more than once …`・`no … follows`・見出しの `—`） | ✅ 設計リナが 2 か所を揃えた |
+| 版 0.1.1（4 crate）・CHANGELOG | ✅ |
+| publish（4 crate）→ タグ `scopegrep-v0.1.1` / `fleet-top-v0.1.1` | 🔲 マージ後・施主確認の上 |
+
 ### 後で判断すること
 
-- `--help` と stderr の文言が日本語（`scopegrep` も同じ）。英語圏に向けるなら両ツールまとめて英語化する
 - `--no-github` でローカルが読めなかった行は GitHub 3 列が `n/a`（聞いていない）。旗なしなら `?`。この非対称は意図どおり
 
 🔴 README に書く数字は `docs/benchmarks/fleet-top.md` からだけ取る（QLT-009）。

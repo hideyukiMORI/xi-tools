@@ -285,7 +285,7 @@ fn too_many_branches_leave_stale_unknown_with_a_reason() {
          alpha  main    -      (none)        -   -   ?\n"
     );
     assert!(
-        stderr(&output).contains("fleet-top: alpha: 枝が 100 本を超えている"),
+        stderr(&output).contains("fleet-top: alpha: more than 100 branches"),
         "実際の stderr: {}",
         stderr(&output)
     );
@@ -363,7 +363,7 @@ fn a_per_repository_error_is_read_from_stdout_not_the_exit_code() {
          alpha  main    -      (none)        ?   ?   ?\n"
     );
     assert!(
-        stderr(&output).contains("fleet-top: alpha: GitHub にそのリポジトリが無い"),
+        stderr(&output).contains("fleet-top: alpha: repository not found on GitHub"),
         "実際の標準エラー: {}",
         stderr(&output)
     );

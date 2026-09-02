@@ -38,7 +38,7 @@ impl fmt::Display for PorcelainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.line {
             0_u32 => write!(f, "{}", self.kind),
-            number => write!(f, "{number}行目: {}", self.kind),
+            number => write!(f, "line {number}: {}", self.kind),
         }
     }
 }
@@ -54,7 +54,10 @@ mod tests {
     #[test]
     fn display_names_the_line_and_the_reason() {
         let error = PorcelainError::new(PorcelainErrorKind::MalformedHeader, 4_u32);
-        assert_eq!(format!("{error}"), "4行目: `#` 見出しの値が読めない");
+        assert_eq!(
+            format!("{error}"),
+            "line 4: cannot read the value of a `#` header"
+        );
     }
 
     /// 行 0 は入力全体を指すので、行番号を出さない。
@@ -63,7 +66,7 @@ mod tests {
         let error = PorcelainError::new(PorcelainErrorKind::MissingHead, 0_u32);
         assert_eq!(
             format!("{error}"),
-            "`# branch.head` が無い（`--branch` を付けて実行する）"
+            "missing `# branch.head` (run with --branch)"
         );
     }
 

@@ -669,7 +669,10 @@ mod tests {
         let error = parse_json("[1 2]").expect_err("読めない");
         let message = format!("{error}");
         assert!(message.contains('3'), "{message} に位置が無い");
-        assert!(message.contains("予期しない文字"), "{message} に種別が無い");
+        assert!(
+            message.contains("unexpected character"),
+            "{message} に種別が無い"
+        );
     }
 
     // ── fixture ────────────────────────────────────────────────────────────

@@ -222,7 +222,7 @@ hoplog                                main                                    - 
 keyquest                              main                                    -      -             -    -     -
 knowledgelog                          main                                    -      (none)        n/a  n/a   n/a
 …（残り 49 行）
-fleet-top: NeNe: 枝が 100 本を超えている。STALE は数えていない
+fleet-top: NeNe: more than 100 branches; STALE was not counted
 fleet-top: 60 repos, 45 on GitHub, 1.6s
 ```
 

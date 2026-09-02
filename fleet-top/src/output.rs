@@ -20,33 +20,33 @@ use crate::usage_error::{USAGE, UsageError};
 /// （使い方の誤りを報告するときと同じ文字列を、2箇所に書かない）。
 const HELP_DETAIL: &str = "\
 arguments:
-    DIR        直下を見るディレクトリ。その中で .git を持つものがリポジトリになる。
-               再帰しない。省略したら今いる場所（.）
+    DIR        directory to scan. direct children that have a .git become
+               repositories. not recursive. defaults to the current directory (.)
 
 options:
-    --stale-days N   既定枝以外の枝を「古い」と呼ぶまでの日数（既定 30）
-    --no-github      gh を起動しない。GitHub の3列は n/a になる（オフライン用）
-    --               以降を旗として解釈しない
-    -h, --help       この使い方を出す
-    -V, --version    版を出す
+    --stale-days N   days after which a non-default branch is stale (default 30)
+    --no-github      do not run gh. the 3 GitHub columns become n/a (offline)
+    --               do not read what follows as flags
+    -h, --help       print this usage
+    -V, --version    print the version
 
 columns:
-    REPO           ディレクトリ名（バイト順）
-    BRANCH         いま居る枝。detached なら (detached)
-    DIRTY          変更・未追跡・衝突のエントリ数
-    AHEAD/BEHIND   上流との差。上流が無ければ (none)
-    PR             open な PR の数
-    CI             既定枝の先頭コミットの検査（ok / FAIL / ... / -）
-    STALE          --stale-days より古い枝の数
+    REPO           directory name (byte order)
+    BRANCH         current branch. (detached) when detached
+    DIRTY          changed, untracked and conflicted entries
+    AHEAD/BEHIND   difference from the upstream. (none) if there is no upstream
+    PR             number of open PRs
+    CI             checks on the default branch head (ok / FAIL / ... / -)
+    STALE          number of branches older than --stale-days
 
-    -    ゼロ・該当なし
-    n/a  origin が GitHub でない（聞いていない）
-    ?    取れなかった（理由は標準エラーに1行ずつ）
+    -    zero, or not applicable
+    n/a  origin is not GitHub (not asked)
+    ?    could not be determined (one reason per line on stderr)
 
 exit status:
-    0   全行が確定した
-    1   ? を含む行がある（表は出ている）
-    2   使い方の誤り・DIR が読めない・時計が読めない";
+    0   every row is complete
+    1   some row contains ? (the table is still printed)
+    2   usage error, cannot read DIR, or cannot read the system clock";
 
 /// 表を標準出力へ出す。**`render` の結果をそのまま**書く（行末に改行が付いている）。
 pub(crate) fn table(text: &str) {
@@ -56,7 +56,7 @@ pub(crate) fn table(text: &str) {
 /// 使い方を標準出力へ出す（`--help` は成功である）。
 pub(crate) fn help() {
     to_stdout(&format!(
-        "fleet-top — 数十の git リポジトリの状態を1画面で返す\n\n\
+        "fleet-top — the state of dozens of git repositories on one screen\n\n\
          usage:\n    {USAGE}\n    fleet-top --help | --version\n\n\
          {HELP_DETAIL}\n"
     ));
@@ -83,7 +83,7 @@ pub(crate) fn unreadable(directory: &Path, error: &io::Error) {
 /// 「古い枝が無い」に見えるので、表を出さずに 2 で終わる（設計メモ F-5）。
 pub(crate) fn clock(error: &SystemTimeError) {
     to_stderr(&format!(
-        "時計が読めない（1970年より前を指している）: {error}"
+        "cannot read the system clock (it points before 1970): {error}"
     ));
 }
 
