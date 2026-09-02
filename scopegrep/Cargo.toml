@@ -1,7 +1,7 @@
 [package]
 name = "scopegrep"
-version = "0.0.0"
-description = "grep が返さない「そのヒットが構造のどこに属するか」を返す"
+version = "0.1.0"
+description = "grep that tells you where in the structure a hit belongs (YAML)"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -9,6 +9,10 @@ repository.workspace = true
 readme = "../README.md"
 keywords = ["grep", "yaml", "search", "structure", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+
+# 🔴 tests/readme.rs はリポジトリの README を実行して照合するテストで、.crate の中では
+#    ../README.md が無く「例が 1 つも無い」で落ちる。publish 物には入れない。
+exclude = ["tests/readme.rs"]
 
 [lints]
 workspace = true
@@ -21,7 +25,7 @@ regex = ["dep:regex"]
 # 🔴 `path` と `version` の両方を書くのは、
 #    `cargo publish -p scopegrep` で単独 publish できる形を保つためである。
 [dependencies]
-scopegrep-core = { path = "../scopegrep-core", version = "0.0.0" }
+scopegrep-core = { path = "../scopegrep-core", version = "0.1.0" }
 # 🔑 版は `=` ではなく `1` で書く。固定するのは `Cargo.lock` の仕事であり、
 #    ここを `=` にすると単独 publish したときに下流の解決を縛る。
 #    `default-features = false` で `perf` 系のビルド時間を切り、

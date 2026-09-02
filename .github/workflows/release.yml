@@ -1,0 +1,138 @@
+name: Release
+
+# 🔴 走る条件はタグの push だけである。workflow_dispatch を足さないこと。
+#    手で起動できる口があると、「どの版の binary か」がタグ以外の理由で決まりうる。
+on:
+  push:
+    tags: ['v*']
+
+# 既定は読むだけ。書き込みを持つのは release job だけである（下で明示する）。
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. 出す前に、出してよいことを確かめる ─────────────────────────────────
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版は rust-toolchain.toml が決める。ここでは何も指定しない
+      # （2箇所に版を書くと、片方だけ上げられて「手元では通る」が生まれる）。
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      # 🔴 タグと Cargo.toml の版が食い違ったまま binary を出さない。
+      #    判定そのものは Makefile にある（QLT-003）。ここは呼ぶだけ。
+      # 🔑 タグ名は env 経由で渡す。run の中に ${{ }} を直接展開すると、
+      #    タグ名がそのままシェルの一部になる。
+      - name: Check the tag against Cargo.toml
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make check-version TAG="${TAG}"
+
+      # make coverage / make deny が使う。検査は Makefile にあり、ここは道具の導入だけ。
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
+      # 🔴 ここで個別の検査を並べないこと（QLT-003）。CI と同じ1行である。
+      - name: make check
+        run: make check
+
+  # ── 2. 各 OS の binary を作る ─────────────────────────────────────────────
+  build:
+    needs: verify
+    # 🔑 fail-fast を切る。1つの OS で失敗しても、他がどこまで作れたかを見たい。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # 🔴 配る binary には regex を入れる（ADR 0002）。既定ビルドが依存 0 であることと、
+      #    配布物に正規表現が入っていることは両立する。cargo install した人だけが選ぶ。
+      - name: Build
+        run: cargo build --release --locked -p scopegrep --features regex
+
+      - name: Archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="scopegrep-${version}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          cp target/release/scopegrep "dist/${name}/scopegrep"
+          cp LICENSE README.md "dist/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          cat "${name}.tar.gz.sha256"
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME" -replace '^v', ''
+          $name = "scopegrep-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path "dist/$name" -Force | Out-Null
+          Copy-Item target/release/scopegrep.exe "dist/$name/"
+          Copy-Item LICENSE, README.md "dist/$name/"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+          $sum = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$sum  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
+          Get-Content "dist/$name.zip.sha256"
+
+      # 成果物は job をまたげないので、いったん artifact に預けて release job で集める。
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: scopegrep-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── 3. Release を作って添付する ───────────────────────────────────────────
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # 🔴 書き込み権限を持つのはこの job だけである。build まで read で足りる。
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # 🔴 サードパーティの release action を使わない。runner の gh CLI で足りるものに、
+      #    書き込み権限付きで第三者のコードを持ち込まない。
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag dist/*

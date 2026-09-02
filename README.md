@@ -1,26 +1,29 @@
 # xi-tools
 
-自分の開発環境のために書いた Rust のツール群。
+English | [日本語](./README.ja.md)
 
-**汎用ツールとして設計していないものを含みます。** 数十のリポジトリを横断して作業する
-個人の環境から出てきた道具なので、前提がその環境に寄っているものがあります。
-それでも公開しているのは、**問題の立て方ごと残しておくため**です。
+Rust tools written for my own development environment.
 
-| ツール | 何を解くか | 状態 |
+**Some of them are not designed as general-purpose tools.** They came out of a personal
+environment where I work across dozens of repositories, so some of their assumptions are
+tied to that environment. They are public anyway **to keep the problem statements themselves**.
+
+| Tool | What it solves | State |
 | --- | --- | --- |
-| [`scopegrep`](./scopegrep) | grep が返さない「**そのヒットが構造のどこに属するか**」を返す | 🟢 動く（YAML の部分集合） |
+| [`scopegrep`](./scopegrep) | Returns what `grep` does not: **where in the structure a hit belongs** | 🟢 Works (a subset of YAML) |
 
 ---
 
-## scopegrep — 構造を知る grep
+## scopegrep — a grep that knows the structure
 
-`grep` は「その行がある」ことしか返しません。そして **YAML の入れ子は行番号に現れません。**
+`grep` only tells you that a line exists. And **YAML nesting does not show up in line numbers.**
 
-CI 設定の中から `cancelled()` を探すとき、本当に知りたいのは
-「何行目にあるか」ではなく **「どのステップに付いているか」** です。
+When you look for `cancelled()` in a CI configuration, what you actually want to know is
+not "which line it is on" but **"which step it is attached to"**.
 
-同梱の fixture（[`scopegrep-core/testdata/workflow-with-comment.yml`](./scopegrep-core/testdata/workflow-with-comment.yml)）を
-`grep` で引くと 5 行返ります。
+Running `grep` over the bundled fixture
+([`scopegrep-core/testdata/workflow-with-comment.yml`](./scopegrep-core/testdata/workflow-with-comment.yml))
+returns 5 lines.
 
 ```console
 $ grep -n 'cancelled()' scopegrep-core/testdata/workflow-with-comment.yml
@@ -31,20 +34,21 @@ $ grep -n 'cancelled()' scopegrep-core/testdata/workflow-with-comment.yml
 46:        if: ${{ !cancelled() }}
 ```
 
-**うち 3 行（4・29・30）はコメントで、設定値ではありません。**
-残る 2 行は同じに見えますが、別物です。
+**Three of them (4, 29, 30) are comments, not configuration values.**
+The remaining two look alike, but they are different things.
 
-- 33 行目は **依存監査のステップ**（`Audit (fail on high/critical)`）の `if` で、
-  前段が落ちた作業ツリーでも走り、意図しない2つ目の赤を出していた（欠陥）
-- 46 行目は **Playwright レポートのアップロード**（`Upload Playwright report`）の `if` で、
-  E2E が落ちてもレポートを上げるための**教科書どおりの正しい用法**
+- Line 33 is the `if` of the **dependency audit step** (`Audit (fail on high/critical)`).
+  It ran even on a working tree whose earlier step had failed, producing an unintended second red (a defect)
+- Line 46 is the `if` of the **Playwright report upload** (`Upload Playwright report`),
+  the textbook correct use: uploading the report even when E2E fails
 
-`grep` の出力からこの違いは読めません。実際に 2026-09-01、同じ形の検索で
-「同じ欠陥が2つある」と誤読し、**偽陽性（正しい用法を欠陥と判定）と
-偽陰性（ファイル名が違うリポを見落とし）が同時に出ました。**
+That difference cannot be read out of `grep` output. In fact, on 2026-09-01 a search of this
+same shape was misread as "the same defect twice", producing **a false positive (a correct use
+judged a defect) and a false negative (a repository whose file was named differently was
+missed) at the same time.**
 
-`scopegrep` は、マッチした値が構造上どこに属するかを返します。
-**コメント内の一致は既定では返しません**（上の 5 行に対してこの 2 行です）。
+`scopegrep` returns where the matched value belongs in the structure.
+**Matches inside comments are not returned by default** (2 lines here, against the 5 above).
 
 ```console
 $ scopegrep 'cancelled()' scopegrep-core/testdata/
@@ -52,8 +56,8 @@ scopegrep-core/testdata/workflow-with-comment.yml:33: jobs.frontend-check.steps[
 scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload Playwright report" .if = ${{ !cancelled() }}
 ```
 
-コメントを**捨てているのではなく、区別している**ので、`--comments` を付けると
-`grep -n` と同じ 5 行が、どちらだったかの印付きで返ります。
+It is **distinguishing comments, not discarding them**, so with `--comments` the same 5 lines
+that `grep -n` returns come back, marked with which of the two they were.
 
 ```console
 $ scopegrep --comments 'cancelled()' scopegrep-core/testdata/
@@ -64,23 +68,24 @@ scopegrep-core/testdata/workflow-with-comment.yml:33: jobs.frontend-check.steps[
 scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload Playwright report" .if = ${{ !cancelled() }}
 ```
 
-コメントの所属は「**そのコメントがどの桁に書かれたか**」で決めます。
-「このコメントは誰の説明か」は推測しません（29〜30 行目は `steps[3]` の説明ですが、
-構文木で持つ実装ではこれが `steps[2]` に付きます。実測は[設計メモ](./docs/design/scopegrep.md)の「D-2 実測」）。
+The scope of a comment is decided by **which column it is written at**.
+"Whom does this comment explain" is not guessed (lines 29-30 explain `steps[3]`, but an
+implementation that holds them in a syntax tree attaches them to `steps[2]`; the measurement
+is in "D-2 実測" of the [design note](./docs/design/scopegrep.md)).
 
-🔴 **この README の `console` ブロックは、実際に実行した出力です。**
-`scopegrep/tests/readme.rs` が `make check` のたびにコマンドを実行し、
-続く行と**完全一致**することを確かめます（一致しなければテストが落ちます）。
+🔴 **The `console` blocks in this README are output that was actually produced.**
+`scopegrep/tests/readme.rs` runs the commands on every `make check` and checks that they
+**match exactly** the lines that follow (if they do not, the test fails).
 
-### 使い方
+### Usage
 
 ```
 scopegrep [-i] [--json] [--comments] [--scope <pattern>] (<needle> | -e <regex>) [<path>...]
 ```
 
-**`--scope` は所属で絞ります。** 検索語ではなく**構造**で引けるので、
-「全ステップの `run` を並べる」のような、`grep` では書けない問いに答えられます
-（needle を空にすると、その場所の値が全部並びます）。
+**`--scope` filters by scope.** Because it queries by **structure** rather than by search
+term, it answers questions you cannot write with `grep`, such as "list the `run` of every step"
+(with an empty needle, every value at that place is listed).
 
 ```console
 $ scopegrep --scope '/jobs/*/steps/*/run' '' scopegrep-core/testdata/
@@ -90,29 +95,34 @@ scopegrep-core/testdata/workflow-with-comment.yml:34: jobs.frontend-check.steps[
 scopegrep-core/testdata/workflow-with-comment.yml:42: jobs.e2e.steps[1] "Run Playwright" .run = npx playwright test
 ```
 
-パターンは出力と同じ JSON Pointer の形で書きます。`*` は**ちょうど1セグメント**、
-`**` は**0 個以上**（`/services/**/image` はどの深さの `image` にも当たります）。
-それ以外は生のキー／索引と完全一致で、**部分一致のグロブはありません**（`*` の意味を一つに保つため）。
-所属パス**全体**との一致を見ます。読めないパターンは黙って直さず、理由を言って終了コード 2 で落ちます。
+Patterns are written in the same JSON Pointer form as the output. `*` is **exactly one
+segment**, `**` is **zero or more** (`/services/**/image` hits an `image` at any depth).
+Everything else is an exact match against the raw key or index, and **there is no substring
+glob** (to keep `*` with a single meaning). The match is against the **whole** scope path.
+An unreadable pattern is not silently repaired: it says why and exits with code 2.
 
-- **`-i` / `--ignore-case`** — 大文字小文字を無視して照合します。
-  列は**原文の一致位置**のままです（小文字化した文字列の上で数えると、
-  `İ` のように小文字が2文字になる字を含む行だけ列がずれるため）
-- **`-e` / `--regex`** — 固定文字列の代わりに正規表現で探します。`<needle>` とは排他で、
-  付けたときは位置引数がすべて `<path>` になります（[使うにはビルド時の指定が要ります](#インストール)）
-- **パスの省略** — `scopegrep <needle>` だけで今いる場所を再帰します。
-  表示に `./` は付きません。明示的に `.` を渡したときは付きます（`grep -rn x .` と同じ）
-- **依存ディレクトリは掘りません** — `.git` `node_modules` `vendor` `target` `.venv`。
-  手元の実測（2026-09-02）では自前の `.yml` / `.yaml` が 188 件なのに対し
-  `node_modules` 配下に 3,206 件・`vendor` 配下に 3,837 件あり、掘ると出力のほぼ全部が
-  他人のファイルになります。**名指しされたパスは除外しません**（`scopegrep x node_modules/foo/` は読みます）
+- **`-i` / `--ignore-case`** — matches ignoring case. The column stays at
+  **the position of the match in the original text** (counting on a lowercased string would
+  shift the column only on lines containing a character whose lowercase form is two
+  characters, such as `İ`)
+- **`-e` / `--regex`** — searches with a regular expression instead of a fixed string.
+  It is exclusive with `<needle>`; when it is given, every positional argument becomes a
+  `<path>` ([using it requires a build-time flag](#install))
+- **Omitting the path** — `scopegrep <needle>` alone recurses from where you are.
+  The display carries no `./`. It does when `.` is passed explicitly (same as `grep -rn x .`)
+- **Dependency directories are not descended into** — `.git` `node_modules` `vendor` `target` `.venv`.
+  In a local measurement (2026-09-02) there were 188 of my own `.yml` / `.yaml` files, against
+  3,206 under `node_modules` and 3,837 under `vendor`; descending into them makes almost all
+  of the output someone else's files. **A path that is named explicitly is not excluded**
+  (`scopegrep x node_modules/foo/` is read)
 
-### 正規表現は opt-in です
+### Regular expressions are opt-in
 
-`-e` / `--regex` は**既定のビルドには入っていません**。この道具の前提は「単一バイナリで配れる・
-中核は依存 0」なので、`regex` crate（推移的に 3 件）を要る人にだけ渡す形にしました
-（判断の根拠は [ADR 0002](./docs/adr/0002-regex-is-an-opt-in-feature.md)）。
-所属で絞る `--scope` とは独立に効きます。
+`-e` / `--regex` is **not in the default build**. This tool assumes "shippable as a single
+binary, with a core that has zero dependencies", so the `regex` crate (3 crates transitively)
+is handed only to those who need it
+(the reasoning is in [ADR 0002](./docs/adr/0002-regex-is-an-opt-in-feature.md)).
+It works independently of `--scope`, which filters by scope.
 
 ```console
 $ scopegrep -e 'npm (ci|test)' scopegrep-core/testdata/
@@ -120,46 +130,54 @@ scopegrep-core/testdata/workflow-with-comment.yml:24: jobs.frontend-check.steps[
 scopegrep-core/testdata/workflow-with-comment.yml:27: jobs.frontend-check.steps[2] "Unit tests" .run = npm test
 ```
 
-一致は**行単位**です（`^` `$` は行の先頭と末尾で、複数行スカラーを跨ぐ一致はしません）。
-値を行ごとに持つ設計の帰結です。`-i` は正規表現側では `RegexBuilder::case_insensitive` で渡すので、
-固定文字列の1文字ずつの case fold とは Unicode の扱いが微妙に違います。
+A match is **within one line** (`^` and `$` are the start and end of a line, and a match does
+not span a multi-line scalar). That follows from a design that holds values line by line.
+`-i` is passed to the regular expression side as `RegexBuilder::case_insensitive`, so Unicode
+is handled slightly differently from the character-by-character case folding of the
+fixed-string side.
 
-🔴 **正規表現なしでビルドした binary で `-e` を打つと、終了コード 2 で
-「この binary は正規表現なしでビルドされている」と言って落ちます。**
-黙って固定文字列として扱いません。どちらのビルドかは `scopegrep --version` が
-`(regex: on)` / `(regex: off)` で返します。
+🔴 **Running `-e` on a binary built without regular expressions exits with code 2 and says
+that this binary was built without regular expressions.**
+It does not silently fall back to a fixed string. Which build you have is reported by
+`scopegrep --version` as `(regex: on)` / `(regex: off)`.
 
-### インストール
+### Install
 
 ```bash
-cargo install --path scopegrep                   # 既定。依存 0
-cargo install --path scopegrep --features regex  # -e / --regex が使える
+cargo install scopegrep                    # fixed-string search, zero dependencies
+cargo install scopegrep --features regex   # adds -e/--regex (3 crates: regex, regex-automata, regex-syntax)
 ```
 
-### 設計上の判断
+Binaries for each OS (with regular expressions) are on
+[GitHub Releases](https://github.com/hideyukiMORI/xi-tools/releases).
 
-- **コメント内のヒットを既定では返さない。** 行ではなく構造を読むので、
-  `# ... cancelled() ...` のような散文と実際の設定値を混同しません。
-  行ベースの検索はこれを必ず拾います（上の 5 行と 2 行の差がそれです）。
-  区別した結果を捨てているわけではないので、`--comments` を付ければ
-  **コメントだと明示した上で**返します
-- **読む YAML を部分集合に限り、外はエラーにする。**
-  読めるのはブロックマッピング・ブロックシーケンス・1行スカラー（プレーン / `'…'` / `"…"`）・
-  ブロックスカラー（`|` `>`）・フロー記法（複数行も可。中には入らず、行ごとに値として持つ）・
-  タグ（読み飛ばす）・コメント・先頭の `---` です。
-  アンカー・エイリアス・マージキー・複数行のプレーンスカラー・複数ドキュメントは
-  **読めません**。黙って誤読した結果を返さず、**何行目の何が読めなかったかを言って落ちます**
-  （一覧は[設計メモ](./docs/design/scopegrep.md)の「対応する YAML の部分集合」）
-- **部分集合は実測で広げる。** 手元の全リポジトリの `.yml` / `.yaml` 188 ファイルに当てたところ、
-  v1 は 169 が読め、GitHub Actions の workflow は 67 本すべて読めました。読めなかった 18 件のうち
-  14 件は compose の `healthcheck.test` を複数行に割ったフロー記法、3 件は compose の `!override` `!reset` タグ、
-  1 件は `- { $ref: … }` を誤読する**バグ**でした。この 3 つだけを足した v1.1 で 187 / 188 になり、
-  残る 1 件は読めないことを確かめるための自前の fixture です。アンカーと複数ドキュメントは
-  この 188 ファイルに 0 件だったので、まだ読めません（数字の出どころは設計メモの「実ファイルでの計測」）
-- **機械向けの出力を持つ。** `--json` は1ヒット1行の JSON Lines で、
-  所属を RFC 6901 の JSON Pointer でも返します。`kind` は `--comments` の有無に
-  かかわらず常に出ます（キーの数が入力で変わると、受け手が
-  「今回は出ていないだけ」と区別できないため）
+### Design decisions
+
+- **Matches inside comments are not returned by default.** It reads the structure rather than
+  lines, so prose such as `# ... cancelled() ...` is not confused with an actual configuration
+  value. A line-based search always picks those up (that is the difference between the 5 lines
+  and the 2 lines above). The result of that distinction is not thrown away: with `--comments`
+  they come back **explicitly marked as comments**
+- **Only a subset of YAML is read, and everything outside it is an error.**
+  What can be read is block mappings, block sequences, single-line scalars
+  (plain / `'…'` / `"…"`), block scalars (`|` `>`), flow notation (multi-line too; it is not
+  entered, and is held as a value line by line), tags (skipped), comments, and a leading `---`.
+  Anchors, aliases, merge keys, multi-line plain scalars and multiple documents **cannot be
+  read**. Rather than silently returning a misread result, it **says what on which line it
+  could not read, and fails**
+  (the list is under "対応する YAML の部分集合" in the [design note](./docs/design/scopegrep.md))
+- **The subset grows by measurement.** Run against the 188 `.yml` / `.yaml` files across every
+  repository on this machine, v1 read 169 of them, and read all 67 GitHub Actions workflows.
+  Of the 18 it could not read, 14 were compose `healthcheck.test` split across lines in flow
+  notation, 3 were the compose `!override` / `!reset` tags, and 1 was a **bug** that misread
+  `- { $ref: … }`. v1.1, which added only those three, reached 187 / 188, and the remaining
+  one is a fixture of my own that exists to confirm what cannot be read. Anchors and multiple
+  documents occurred 0 times in those 188 files, so they are still not read
+  (the numbers come from "実ファイルでの計測" in the design note)
+- **It has machine-readable output.** `--json` is JSON Lines, one hit per line, and returns
+  the scope as an RFC 6901 JSON Pointer as well. `kind` is always present, with or without
+  `--comments` (if the set of keys changed with the input, the receiver could not tell it
+  apart from "it just did not come out this time")
 
 ```console
 $ scopegrep --json 'cancelled()' scopegrep-core/testdata/workflow-with-comment.yml
@@ -167,67 +185,75 @@ $ scopegrep --json 'cancelled()' scopegrep-core/testdata/workflow-with-comment.y
 {"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":46,"column":18,"pointer":"/jobs/e2e/steps/2/if","path":"jobs.e2e.steps[2] \"Upload Playwright report\" .if","label":"Upload Playwright report","value":"${{ !cancelled() }}","kind":"value"}
 ```
 
-- **終了コードは `grep` と同じ。** 0 = 1件以上ヒット / 1 = ヒット無し / 2 = エラー。
-  🔴 **読めないファイルがあれば、ヒットが出ていても 2 で終わります。**
-  「一部しか見ていない結果」を成功と呼ばないのが、この道具が生まれた事故への答えです
-- **既定ビルドの依存は 0。** 中核（`scopegrep-core`）は `#![no_std]` ＋ `alloc` で書かれ、
-  時刻・乱数・環境・I/O に**構文的に到達できません**。パーサを自分で書いた理由と、
-  候補6件の実測（位置情報・コメントの露出・依存数・`no_std`）は
-  [設計メモ](./docs/design/scopegrep.md)の「D-2 実測」節にあります。
-  唯一の例外が opt-in の `regex` で、**中核ではなくバイナリ側に入ります**
-  （中核は照合を `Matcher` trait で受け取るだけで、正規表現を知りません）。
-  ライセンス・脆弱性・重複バージョン・取得元は `make deny`（`cargo-deny`）が見ます
-- **YAML に閉じない。** 同じ問題は TOML / JSON にもあります（v1 には含みません）
+- **Exit codes are the same as `grep`.** 0 = at least one hit / 1 = no hit / 2 = error.
+  🔴 **If there is a file it could not read, it exits with 2 even when there were hits.**
+  Not calling "a result that looked at only part of the input" a success is this tool's answer
+  to the accident it was born from
+- **The default build has zero dependencies.** The core (`scopegrep-core`) is written as
+  `#![no_std]` plus `alloc`, and **cannot syntactically reach** the clock, randomness, the
+  environment or I/O. Why the parser is hand-written, and the measurement of 6 candidates
+  (position information, exposure of comments, number of dependencies, `no_std`), are in the
+  "D-2 実測" section of the [design note](./docs/design/scopegrep.md).
+  The one exception is the opt-in `regex`, which goes **into the binary, not into the core**
+  (the core only receives matching through a `Matcher` trait, and knows nothing about regular
+  expressions). Licenses, vulnerabilities, duplicate versions and sources are watched by
+  `make deny` (`cargo-deny`)
+- **It is not limited to YAML.** The same problem exists in TOML / JSON as well
+  (they are not in v1)
 
-### 隣接する既存実装
+### Adjacent existing implementations
 
-- [`yamlpath`](https://crates.io/crates/yamlpath) — YAML から値を抽出する（書式を保存する）ライブラリ。
-  **「パスを指定して値を取る」方向**で、`scopegrep` の
-  **「値を検索してパスを返す」方向**とは逆です
-- [`treegrep`](https://crates.io/crates/treegrep) — 検索結果を**ファイルツリー**として表示する。
-  返すのはファイル階層であって、**ファイル内の構造ではありません**
+- [`yamlpath`](https://crates.io/crates/yamlpath) — a library that extracts values from YAML
+  (preserving the formatting). It goes in the direction of **"give a path, get a value"**,
+  the opposite of `scopegrep`'s **"search for a value, get a path"**
+- [`treegrep`](https://crates.io/crates/treegrep) — displays search results as a **file tree**.
+  What it returns is the file hierarchy, **not the structure inside a file**
 
 ---
 
-## 開発
+## Development
 
 ```bash
 make check
 ```
 
-**これが唯一の入口です。** CI も `make check` を呼ぶだけで、CI 側にしか無い検査を作りません
-（「手元では通ったのに CI で落ちた」を構造的に起こさないため）。
-道具が要るのは2つだけです——`make coverage` は `cargo-llvm-cov`、
-`make deny` は `cargo-deny`（どちらも `cargo install <name> --locked`）。
+**This is the only entry point.** CI also does nothing but call `make check`, so that no check
+exists only in CI (to structurally prevent "it passed locally but failed in CI").
+Only two tools are needed — `make coverage` needs `cargo-llvm-cov` and `make deny` needs
+`cargo-deny` (both `cargo install <name> --locked`).
 
-`make check` は**両方の構成**（既定と `--features scopegrep/regex`）で lint とテストを回します。
-片方だけ緑の状態を作らないためです。
+`make check` runs lint and tests in **both configurations** (the default and
+`--features scopegrep/regex`), so that a state where only one of them is green cannot arise.
 
-版は `rust-toolchain.toml` が決めます。`Makefile` にも CI にも版を書きません
-（2箇所に書くと、片方だけ上げられて「手元では通る」が生まれるため）。
+The toolchain version is decided by `rust-toolchain.toml`. It is written neither in the
+`Makefile` nor in CI (writing it in two places lets one of them be bumped alone, which creates
+"it passes locally").
 
-### 規約
+### Rules
 
-コードの書き方は **[`docs/coding-rules.md`](./docs/coding-rules.md) が正**です。
-すべての規則に ID があり、**機械強制の状態（active / planned / 不能 / 不採用）を明示**しています。
+How code is written is **defined by [`docs/coding-rules.md`](./docs/coding-rules.md)**.
+Every rule has an ID, and **the state of its mechanical enforcement is stated explicitly**
+(active / planned / impossible / not adopted).
 
-思想は「**一つの事を表現する手段を一つに固定する**」ことで、実体は3層です。
+The idea is to **fix a single way of expressing a single thing**, and it is implemented in
+three layers.
 
-| 層 | 守るもの |
+| Layer | What it guards |
 | --- | --- |
-| コンパイラ / cargo | 型・可視性・網羅性・クレート境界（**不正な状態を書けなくする**） |
-| lint | 書けてしまうが書くべきでないこと |
-| 規約検査（`xtask`） | xi-tools 固有の規約（依存ゼロ・`make check` に含まれる） |
+| compiler / cargo | types, visibility, exhaustiveness, crate boundaries (**making invalid states unwritable**) |
+| lint | what can be written but should not be |
+| conformance check (`xtask`) | rules specific to xi-tools (zero dependencies, part of `make check`) |
 
-🔴 **抑制は二段構えです。** `forbid` した規則は `#[allow]` も `#[expect]` も
-コンパイルエラー（E0453）になり、**例外を申請する窓口が存在しません**。
-`deny` の規則は `#[expect(lint, reason = "...")]` でのみ抑制でき、
-不要になった抑制は `unfulfilled_lint_expectations` が落とします。
+🔴 **Suppression has two stages.** A rule that is `forbid`den makes both `#[allow]` and
+`#[expect]` a compile error (E0453), so **there is no window through which to apply for an
+exception**. A `deny` rule can be suppressed only with `#[expect(lint, reason = "...")]`, and
+a suppression that is no longer needed is failed by `unfulfilled_lint_expectations`.
 
-判断の根拠は [ADR 0001](./docs/adr/0001-strictness-is-mechanically-enforced.md)、
-ゲートが実際に発火することの実測は
-[ゲート発火の証明](./docs/quality/gate-proofs.md)。
+The reasoning is in
+[ADR 0001](./docs/adr/0001-strictness-is-mechanically-enforced.md), and the measurement that
+the gates actually fire is in
+[the proof of gate firing](./docs/quality/gate-proofs.md).
 
-## ライセンス
+## License
 
 MIT

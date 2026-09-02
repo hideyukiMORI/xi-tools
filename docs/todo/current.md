@@ -18,20 +18,18 @@
 
 ---
 
-## 次の1手: PR #4 を施主がレビューしてマージ
+## 次の1手: 0.1.0 を出す（PR #5 → publish → タグ）
 
-コミットは 2 段（`--scope` / `-i` / パス省略 / 除外 → feature `regex` ＋ `cargo-deny`）。設計リナが各段をレビュー済み。
-🔴 マージ前に見てほしい判断:
+施主の判断（2026-09-02）: **機能追加は止める。英語 README。配れる形にする。** 他は保留。
 
-- `-e` があるときは位置引数を全部パスとして読む（needle の位置は無くなる。排他の検出は機械的に不能だった）
-- `make deny` は `--deny license-not-encountered` 付き。使っていないライセンスを `allow` に書くと落ちる
-- `deny.toml` は `[graph] all-features = true`。opt-in の依存も検査グラフに入れる
-- `Query` の `Matcher` は同一性でのみ等しい（中身を比較できないため）
-- PR テンプレートに ARC-004 の人手チェック 1 行を足した（不要なら消す）
+1. PR #5（`release/0.1.0`）を施主がレビューしてマージ
+2. 設計リナが `cargo publish -p scopegrep-core` → 数分待つ → `cargo publish -p scopegrep`（順番固定・`docs/release.md`）
+3. `git tag v0.1.0 && git push origin v0.1.0` → Release workflow が 3 OS の binary を上げる
+4. `cargo install scopegrep --features regex` で手元を crates.io 版に入れ替える
 
-マージ後: `cargo install --path scopegrep --locked --features regex` で入れ直す（設計リナがやる）。
+🔴 README の Install 節（`cargo install scopegrep`）は **publish が終わるまで真でない**。マージと publish は同日に行う。
 
-## PR #4 マージ後の候補（どれも急がない・決め打ちしない）
+## 0.1.0 の後の候補（**保留**・施主判断 2026-09-02。困った人が現れてから）
 
 - [ ] **部分集合を広げる**。候補: 複数ドキュメント（`---`・k8s manifest）、アンカー/エイリアス（compose）、
       複数行プレーンスカラー。🔴 **設計メモの表を先に更新し、エラーになるテストを通るテストに変えてから実装**
