@@ -11,7 +11,10 @@ accepted (2026-09-02・施主承認)
 
 一方で本リポジトリは **依存 0** を前提に置いている（ARC-004。単一バイナリで配れること、
 `scopegrep-core` が `no_std` で純粋であること）。`regex` crate を足すと推移的に 5 crate
-（`regex` / `regex-syntax` / `regex-automata` / `aho-corasick` / `memchr`）が入る。
+（`regex` / `regex-syntax` / `regex-automata` / `aho-corasick` / `memchr`）が入ると見積もった。
+**実測は 3 crate**（`default-features = false, features = ["std", "unicode"]` で入れたため
+`aho-corasick` / `memchr` はどの feature でも有効にならない。`cargo deny list` の実出力は
+[gate-proofs](../quality/gate-proofs.md) P-19）。
 
 ARC-004 は「依存を足すときは ADR」「`cargo-deny` は依存を 1 つ足す ADR と同時に導入する」と定めている。
 本 ADR がその最初の 1 本である。
@@ -28,8 +31,9 @@ ARC-004 は「依存を足すときは ADR」「`cargo-deny` は依存を 1 つ�
 3. **feature 無しでビルドした binary で `--regex` を打つと、終了 2 で「この binary は正規表現なしでビルドされている」と言う。**
    黙って固定文字列として扱わない
 4. **`cargo-deny` を同時に導入する。** `deny.toml` を置き、`make check` に `deny` を足す。
-   ライセンスは許可制（MIT / Apache-2.0 / Unicode-3.0 / BSD 系を許可・GPL 系は拒否）、advisories は警告ではなく失敗、
-   重複バージョンは失敗
+   ライセンスは許可制で、**実際に使っているものだけ**を `allow` に書く（実測: MIT / Apache-2.0 の 2 つ。
+   先回りで書くと `--deny license-not-encountered` が落とす）、advisories は警告ではなく失敗、
+   重複バージョンは失敗、opt-in の依存も `[graph] all-features = true` で検査グラフに入れる
 5. **`make check` は feature あり・なしの両方でテストを回す。** 片方だけ緑の状態を作らない
 
 ### 却下した選択肢
@@ -40,7 +44,7 @@ ARC-004 は「依存を足すときは ADR」「`cargo-deny` は依存を 1 つ�
 | 正規表現エンジンを自分で書く | 道具の目的（所属を返す）から外れた場所に工数と欠陥を積む。「Rust でツールが作れる」を示す第一目的に対して、正規表現エンジンの自作は寄与より欠陥のリスクが大きい |
 | グロブ（`*` / `?`）だけ足す | 固定文字列と正規表現の間に三つ目の記法を作る。「一つの事に一つの手段」に反する。`--scope` のセグメント一致とも混同を招く |
 | `scopegrep-regex` を別クレートにする | クレートが 1 つ増える分の管理（publish・版）に対して、得るものは feature と同じ。ARC-001（1 ツール = 1 クレート）の趣旨にも合わない |
-| `regex-lite`（依存が少ない代替） | 依存は減るが機能と性能が落ち、`regex` との**二択が生まれる**。採るなら 1 つ。`regex` の推移的依存 5 件は `cargo-deny` で見える範囲に収まる |
+| `regex-lite`（依存が少ない代替） | 依存は減るが機能と性能が落ち、`regex` との**二択が生まれる**。採るなら 1 つ。`regex` の推移的依存（実測 3 件）は `cargo-deny` で見える範囲に収まる |
 
 ## Consequences
 
@@ -72,6 +76,6 @@ ARC-004 は「依存を足すときは ADR」「`cargo-deny` は依存を 1 つ�
 ## Related
 
 - Issue: none
-- PR: `#4`（予定）
+- PR: `#4`
 - Supersedes: none
 - Superseded by: none

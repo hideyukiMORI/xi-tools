@@ -75,7 +75,7 @@ scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload 
 ### 使い方
 
 ```
-scopegrep [-i] [--json] [--comments] [--scope <pattern>] <needle> [<path>...]
+scopegrep [-i] [--json] [--comments] [--scope <pattern>] (<needle> | -e <regex>) [<path>...]
 ```
 
 **`--scope` は所属で絞ります。** 検索語ではなく**構造**で引けるので、
@@ -98,12 +98,43 @@ scopegrep-core/testdata/workflow-with-comment.yml:42: jobs.e2e.steps[1] "Run Pla
 - **`-i` / `--ignore-case`** — 大文字小文字を無視して照合します。
   列は**原文の一致位置**のままです（小文字化した文字列の上で数えると、
   `İ` のように小文字が2文字になる字を含む行だけ列がずれるため）
+- **`-e` / `--regex`** — 固定文字列の代わりに正規表現で探します。`<needle>` とは排他で、
+  付けたときは位置引数がすべて `<path>` になります（[使うにはビルド時の指定が要ります](#インストール)）
 - **パスの省略** — `scopegrep <needle>` だけで今いる場所を再帰します。
   表示に `./` は付きません。明示的に `.` を渡したときは付きます（`grep -rn x .` と同じ）
 - **依存ディレクトリは掘りません** — `.git` `node_modules` `vendor` `target` `.venv`。
   手元の実測（2026-09-02）では自前の `.yml` / `.yaml` が 188 件なのに対し
   `node_modules` 配下に 3,206 件・`vendor` 配下に 3,837 件あり、掘ると出力のほぼ全部が
   他人のファイルになります。**名指しされたパスは除外しません**（`scopegrep x node_modules/foo/` は読みます）
+
+### 正規表現は opt-in です
+
+`-e` / `--regex` は**既定のビルドには入っていません**。この道具の前提は「単一バイナリで配れる・
+中核は依存 0」なので、`regex` crate（推移的に 3 件）を要る人にだけ渡す形にしました
+（判断の根拠は [ADR 0002](./docs/adr/0002-regex-is-an-opt-in-feature.md)）。
+所属で絞る `--scope` とは独立に効きます。
+
+```console
+$ scopegrep -e 'npm (ci|test)' scopegrep-core/testdata/
+scopegrep-core/testdata/workflow-with-comment.yml:24: jobs.frontend-check.steps[1] "Install" .run = npm ci
+scopegrep-core/testdata/workflow-with-comment.yml:27: jobs.frontend-check.steps[2] "Unit tests" .run = npm test
+```
+
+一致は**行単位**です（`^` `$` は行の先頭と末尾で、複数行スカラーを跨ぐ一致はしません）。
+値を行ごとに持つ設計の帰結です。`-i` は正規表現側では `RegexBuilder::case_insensitive` で渡すので、
+固定文字列の1文字ずつの case fold とは Unicode の扱いが微妙に違います。
+
+🔴 **正規表現なしでビルドした binary で `-e` を打つと、終了コード 2 で
+「この binary は正規表現なしでビルドされている」と言って落ちます。**
+黙って固定文字列として扱いません。どちらのビルドかは `scopegrep --version` が
+`(regex: on)` / `(regex: off)` で返します。
+
+### インストール
+
+```bash
+cargo install --path scopegrep                   # 既定。依存 0
+cargo install --path scopegrep --features regex  # -e / --regex が使える
+```
 
 ### 設計上の判断
 
@@ -139,10 +170,13 @@ $ scopegrep --json 'cancelled()' scopegrep-core/testdata/workflow-with-comment.y
 - **終了コードは `grep` と同じ。** 0 = 1件以上ヒット / 1 = ヒット無し / 2 = エラー。
   🔴 **読めないファイルがあれば、ヒットが出ていても 2 で終わります。**
   「一部しか見ていない結果」を成功と呼ばないのが、この道具が生まれた事故への答えです
-- **依存は 0。** 中核（`scopegrep-core`）は `#![no_std]` ＋ `alloc` で書かれ、
+- **既定ビルドの依存は 0。** 中核（`scopegrep-core`）は `#![no_std]` ＋ `alloc` で書かれ、
   時刻・乱数・環境・I/O に**構文的に到達できません**。パーサを自分で書いた理由と、
   候補6件の実測（位置情報・コメントの露出・依存数・`no_std`）は
-  [設計メモ](./docs/design/scopegrep.md)の「D-2 実測」節にあります
+  [設計メモ](./docs/design/scopegrep.md)の「D-2 実測」節にあります。
+  唯一の例外が opt-in の `regex` で、**中核ではなくバイナリ側に入ります**
+  （中核は照合を `Matcher` trait で受け取るだけで、正規表現を知りません）。
+  ライセンス・脆弱性・重複バージョン・取得元は `make deny`（`cargo-deny`）が見ます
 - **YAML に閉じない。** 同じ問題は TOML / JSON にもあります（v1 には含みません）
 
 ### 隣接する既存実装
@@ -163,7 +197,11 @@ make check
 
 **これが唯一の入口です。** CI も `make check` を呼ぶだけで、CI 側にしか無い検査を作りません
 （「手元では通ったのに CI で落ちた」を構造的に起こさないため）。
-`make coverage` だけは `cargo-llvm-cov` が要ります（`cargo install cargo-llvm-cov --locked`）。
+道具が要るのは2つだけです——`make coverage` は `cargo-llvm-cov`、
+`make deny` は `cargo-deny`（どちらも `cargo install <name> --locked`）。
+
+`make check` は**両方の構成**（既定と `--features scopegrep/regex`）で lint とテストを回します。
+片方だけ緑の状態を作らないためです。
 
 版は `rust-toolchain.toml` が決めます。`Makefile` にも CI にも版を書きません
 （2箇所に書くと、片方だけ上げられて「手元では通る」が生まれるため）。

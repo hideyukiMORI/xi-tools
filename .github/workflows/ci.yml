@@ -28,6 +28,10 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      # make deny が使う。同上で、ここは道具の導入だけ（方針は deny.toml が正）。
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:

@@ -38,6 +38,8 @@
 //! # 依存と環境
 //!
 //! `#![no_std]` ＋ `alloc` で書かれ、依存は 0 である（ARC-003 / ARC-004）。
+//! 正規表現のような重い照合は [`matcher::Matcher`] を通して**外から差し込む**ので、
+//! ここに依存が入る経路は無い（[ADR 0002](https://github.com/hideyukiMORI/xi-tools/blob/main/docs/adr/0002-regex-is-an-opt-in-feature.md)）。
 //! 時刻・乱数・環境・I/O に**構文的に到達できない**ので、同じ入力からは必ず同じ出力が出る。
 
 #![no_std]
@@ -47,10 +49,12 @@ extern crate alloc;
 pub mod case_match;
 pub mod column;
 pub mod document;
+pub mod fixed_string;
 pub mod hit;
 pub mod hit_kind;
 pub mod line_number;
 pub mod malformed_input;
+pub mod matcher;
 pub mod parse_error;
 pub mod parse_error_kind;
 pub mod query;
@@ -70,6 +74,7 @@ mod frame;
 mod frame_kind;
 mod key_span;
 mod mapping_entry;
+mod matching;
 mod pattern_segment;
 mod pending_block;
 mod pending_flow;

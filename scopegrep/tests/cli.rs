@@ -336,12 +336,19 @@ fn bad_arguments_print_the_usage_and_exit_two() {
         assert_eq!(
             stderr(&output),
             "scopegrep: usage: scopegrep [-i] [--json] [--comments] \
-             [--scope <pattern>] <needle> [<path>...]\n"
+             [--scope <pattern>] (<needle> | -e <regex>) [<path>...]\n"
         );
         assert_eq!(stdout(&output), "");
         assert_eq!(output.status.code(), Some(2_i32));
     }
 }
+
+/// 🔴 この binary が正規表現を持っているか。**構成によって振る舞いが違う binary が
+/// 2つ在る**ので、テストも構成ごとに固定する（ADR 0002 決定 5）。
+#[cfg(feature = "regex")]
+const REGEX_STATE: &str = "on";
+#[cfg(not(feature = "regex"))]
+const REGEX_STATE: &str = "off";
 
 #[test]
 fn help_and_version_succeed_on_stdout() {
@@ -355,7 +362,10 @@ fn help_and_version_succeed_on_stdout() {
         let output = spawn(&[flag]).expect("バイナリを起動できるはず");
         assert_eq!(
             stdout(&output),
-            format!("scopegrep {}\n", env!("CARGO_PKG_VERSION"))
+            format!(
+                "scopegrep {} (regex: {REGEX_STATE})\n",
+                env!("CARGO_PKG_VERSION")
+            )
         );
         assert_eq!(output.status.code(), Some(0_i32));
     }
@@ -548,4 +558,118 @@ fn ignore_case_reports_the_column_of_the_original_text() {
          \"label\":null,\"value\":\"STRAßE İstanbul Ziel\",\"kind\":\"value\"}\n"
     );
     assert_eq!(output.status.code(), Some(0_i32));
+}
+
+// ── 12. `-e` / `--regex` — 正規表現（opt-in の feature）─────────────────────
+
+/// fixture の 2 行（値としての `cancelled()`）。固定文字列でも正規表現でも同じ形で返る。
+#[cfg(feature = "regex")]
+fn expected_two_conditions() -> String {
+    FIXTURE.to_owned()
+        + ":33: jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if = ${{ !cancelled() }}\n"
+        + FIXTURE
+        + ":46: jobs.e2e.steps[2] \"Upload Playwright report\" .if = ${{ !cancelled() }}\n"
+}
+
+/// 🔑 正規表現でも**コメント内の一致は既定では返らない**。
+/// 旗が増えても、この道具の存在理由は変わらない。
+#[cfg(feature = "regex")]
+#[test]
+fn a_regex_run_prints_the_scope_of_every_hit() {
+    let output = spawn(&["-e", "cancel+ed\\(\\)", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), expected_two_conditions());
+    assert_eq!(stderr(&output), "");
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// 🔴 一致は**行単位**である（ADR 0002 の「正直に記録しておくこと」）。
+/// `^` は行の先頭ではなく**値の先頭**でもなく、スカラー1行の先頭に当たる。
+#[cfg(feature = "regex")]
+#[test]
+fn a_regex_matches_within_one_line() {
+    let anchored = spawn(&["-e", "^\\$\\{\\{ !cancel", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&anchored), expected_two_conditions());
+    assert_eq!(anchored.status.code(), Some(0_i32));
+}
+
+/// `-i` は正規表現にも効く（`RegexBuilder::case_insensitive`）。
+#[cfg(feature = "regex")]
+#[test]
+fn a_regex_honours_ignore_case() {
+    let exact = spawn(&["-e", "CANCEL+ED", FIXTURE]).expect("バイナリを起動できるはず");
+    let folded = spawn(&["-i", "-e", "CANCEL+ED", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&exact), "", "既定では大文字小文字を区別する");
+    assert_eq!(exact.status.code(), Some(1_i32));
+    assert_eq!(stdout(&folded), expected_two_conditions());
+    assert_eq!(folded.status.code(), Some(0_i32));
+}
+
+/// `--scope` は照合の種類と**独立**である。所属で絞ってから正規表現を当てる。
+#[cfg(feature = "regex")]
+#[test]
+fn a_regex_can_be_narrowed_by_scope() {
+    let inside = spawn(&["--scope", "/jobs/e2e/**", "-e", "cancel+ed\\(\\)", FIXTURE])
+        .expect("バイナリを起動できるはず");
+    let outside = spawn(&["--scope", "/nowhere/**", "-e", "cancel+ed\\(\\)", FIXTURE])
+        .expect("バイナリを起動できるはず");
+    assert_eq!(
+        stdout(&inside),
+        FIXTURE.to_owned()
+            + ":46: jobs.e2e.steps[2] \"Upload Playwright report\" .if = ${{ !cancelled() }}\n"
+    );
+    assert_eq!(inside.status.code(), Some(0_i32));
+    assert_eq!(stdout(&outside), "");
+    assert_eq!(outside.status.code(), Some(1_i32));
+}
+
+/// 🔴 読めない正規表現は**理由を言って** 2 で終わる。黙って固定文字列に落とさない。
+#[cfg(feature = "regex")]
+#[test]
+fn a_broken_regex_says_why_and_exits_two() {
+    let output = spawn(&["-e", "cancel+ed(", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).starts_with("scopegrep: 正規表現が不正: "),
+        "実際の出力: {}",
+        stderr(&output)
+    );
+    assert_eq!(output.status.code(), Some(2_i32));
+}
+
+/// 🔴 正規表現なしでビルドされた binary は、`-e` を**黙って固定文字列にしない**。
+/// 「使えない」と言うほうが、静かに意味が変わるより良い（ADR 0002 決定 3）。
+#[cfg(not(feature = "regex"))]
+#[test]
+fn a_regex_is_refused_when_the_binary_was_built_without_it() {
+    for flag in ["-e", "--regex"] {
+        let output = spawn(&[flag, "cancel+ed\\(\\)", FIXTURE]).expect("バイナリを起動できるはず");
+        assert_eq!(stdout(&output), "");
+        assert_eq!(
+            stderr(&output),
+            "scopegrep: この binary は正規表現なしでビルドされている\
+             （cargo install --features regex）\n"
+        );
+        assert_eq!(output.status.code(), Some(2_i32));
+    }
+}
+
+/// 🔑 2回書いたら後勝ちにしない。**構成によらず同じ規則**である。
+#[test]
+fn a_repeated_regex_flag_is_a_usage_error() {
+    let output = spawn(&["-e", "a", "-e", "b", FIXTURE]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "scopegrep: -e: 2回以上書かれている（どちらが効くかを決めない）\n"
+    );
+    assert_eq!(output.status.code(), Some(2_i32));
+}
+
+/// 値を伴わない `-e` も使い方の誤りである。
+#[test]
+fn a_regex_flag_without_a_pattern_is_a_usage_error() {
+    let output = spawn(&["x", FIXTURE, "-e"]).expect("バイナリを起動できるはず");
+    assert_eq!(stdout(&output), "");
+    assert_eq!(stderr(&output), "scopegrep: -e: 正規表現が続いていない\n");
+    assert_eq!(output.status.code(), Some(2_i32));
 }

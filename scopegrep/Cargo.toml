@@ -13,7 +13,20 @@ categories = ["command-line-utilities", "development-tools"]
 [lints]
 workspace = true
 
-# 🔴 依存はこれ1つ（ARC-004）。`path` と `version` の両方を書くのは、
+# 🔴 既定ビルドの依存はこれ1つ（ARC-004）。`regex` は opt-in で、
+#    既定では推移的なものも含めて1つも入らない（ADR 0002）。
+[features]
+regex = ["dep:regex"]
+
+# 🔴 `path` と `version` の両方を書くのは、
 #    `cargo publish -p scopegrep` で単独 publish できる形を保つためである。
 [dependencies]
 scopegrep-core = { path = "../scopegrep-core", version = "0.0.0" }
+# 🔑 版は `=` ではなく `1` で書く。固定するのは `Cargo.lock` の仕事であり、
+#    ここを `=` にすると単独 publish したときに下流の解決を縛る。
+#    `default-features = false` で `perf` 系のビルド時間を切り、
+#    `unicode` は残す（`-i` の意味を固定文字列側と揃えるため）。
+regex = { version = "1", optional = true, default-features = false, features = [
+  "std",
+  "unicode",
+] }

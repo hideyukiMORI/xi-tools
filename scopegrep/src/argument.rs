@@ -12,8 +12,10 @@ pub(crate) enum Argument<'a> {
     Comments,
     /// `-i` / `--ignore-case`。
     IgnoreCase,
-    /// `--scope`。**次の引数がパターンである**（値を伴う唯一の旗）。
+    /// `--scope`。**次の引数がパターンである**（値を伴う旗）。
     Scope,
+    /// `-e` / `--regex`。**次の引数が正規表現である**（値を伴う旗）。
+    Regex,
     /// `-h` / `--help`。
     Help,
     /// `-V` / `--version`。
@@ -43,6 +45,10 @@ impl<'a> Argument<'a> {
         //    どちらが正かを覚える必要が出る。書き方は「旗の次に値」の一つだけ。
         if text == "--scope" {
             return Self::Scope;
+        }
+        // 🔑 `-e` は `grep` と同じ綴りである。同じ意味の旗に別の名前を付けない。
+        if text == "-e" || text == "--regex" {
+            return Self::Regex;
         }
         if text == "-h" || text == "--help" {
             return Self::Help;
