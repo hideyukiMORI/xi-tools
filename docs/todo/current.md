@@ -54,7 +54,9 @@
 | 作業指示 english-1（scopegrep）・english-2（fleet-top）を並行で | ✅ 2026-09-02。文字列だけ・テスト数不変・`make check` 緑 |
 | 両ツールの用語の突き合わせ（`line N:`・`given more than once …`・`no … follows`・見出しの `—`） | ✅ 設計リナが 2 か所を揃えた |
 | 版 0.1.1（4 crate）・CHANGELOG | ✅ |
-| publish（4 crate）→ タグ `scopegrep-v0.1.1` / `fleet-top-v0.1.1` | 🔲 マージ後・施主確認の上 |
+| publish（4 crate）→ タグ `scopegrep-v0.1.1` / `fleet-top-v0.1.1` | ✅ 2026-09-02（施主確認の上）。Release workflow 2 本とも 3 OS 成功。手元は両方 0.1.1 |
+
+**2 本とも 0.1.1 まで出た。次の 1 手は無い**（困った人が現れてから）。
 
 ### 後で判断すること
 
