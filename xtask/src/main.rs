@@ -29,9 +29,12 @@ fn repository_root() -> PathBuf {
 }
 
 /// 全ファイルに全検査をかけ、違反をパス順に返す。
+///
+/// 🔑 CNF-007 だけはファイル1つでは判定できない（マニフェストの名前と `src/lib.rs` の
+/// 両方を見る）ので、ファイルごとの検査とは別に1回だけかける。
 fn inspect(files: &[SourceFile], root: &Path) -> Vec<Violation> {
     let known = check::known_rule_ids(files);
-    files
+    let mut violations: Vec<Violation> = files
         .iter()
         .flat_map(|file| {
             let mut found = check::no_default_construction(file);
@@ -40,9 +43,12 @@ fn inspect(files: &[SourceFile], root: &Path) -> Vec<Violation> {
             found.extend(check::role_bearing_names(file));
             found.extend(check::suppression_cites_rule(file, &known));
             found.extend(check::document_links_resolve(file, root));
+            found.extend(check::no_build_script(file));
             found
         })
-        .collect()
+        .collect();
+    violations.extend(check::core_crates_declare_no_std(files));
+    violations
 }
 
 // 🔴 出力を行ってよい唯一の場所（RS-014）。この #[expect] が「ここだけが標準出力に

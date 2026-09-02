@@ -229,8 +229,8 @@ let n = len as u32;                  // ❌ as_conversions（forbid）
 大半が**そもそも言語に存在しない**。
 
 - 機械強制: **active**（`unsafe_code` を **forbid**。reflection は言語に無い。
-  proc-macro の禁止＝`CNF-002`）
-- 機械強制: **planned**（`build.rs` の禁止・`macro_rules!` の判断はレビュー事項）
+  proc-macro の禁止＝`CNF-002`。**`build.rs` の禁止＝`CNF-008`**）
+- 機械強制: **planned**（`macro_rules!` の判断はレビュー事項）
 
 ### RS-011 — 複雑度に上限を置く
 
@@ -302,7 +302,9 @@ fn main() { ... }
 環境変数・コマンドライン引数・標準入出力・カレントディレクトリを読んでよいのは
 バイナリクレート（`main`）だけ。ライブラリ側は値として受け取る。
 
-- 機械強制: **planned**（`ARC-003` のクレート分割が入った時点で `no_std` により **active** になる）
+- 機械強制: **active**（`scopegrep-core` が `#![no_std]` なので、そこから
+  `std::fs` / `std::env` / 標準入出力は**名前解決エラー**になる
+  （実測: [C-9](quality/gate-proofs.md)）。宣言が消えていないことは `CNF-007` が見る）
 
 ### RS-016 — 反復順は決定的
 
@@ -357,7 +359,8 @@ Rust では既定型への落下として現れるので、それを検出でき
 循環は cargo が拒否する（実測: `error: cyclic package dependency`）。
 Go の `depguard` のような lint を書く必要が無い。**設定ではなく構造で守られる。**
 
-- 機械強制: **active**（cargo。ただし現在は単一クレートで対象が無い）
+- 機械強制: **active**（cargo。`scopegrep` → `scopegrep-core` の一方向で、
+  循環は cargo が拒む）
 
 ### ARC-003 — 中核は `no_std` で純粋性を表明する
 
@@ -365,11 +368,14 @@ Go の `depguard` のような lint を書く必要が無い。**設定ではな
 
 🔑 **これが Rust における pure-core の実装である。**
 `no_std` にすると `std::time`・`std::fs`・`std::env`・`std::io` は
-lint 違反ではなく**名前解決エラー**になる（実測: `E0433: cannot find module or crate std`）。
+lint 違反ではなく**名前解決エラー**になる
+（実測: 式で書けば `E0433: cannot find module or crate std`、
+`use std::fs;` と書けば `E0432: unresolved import std`）。
 時刻・乱数・環境・I/O が**構文的に到達不能**になるので、決定性が構造で保証される。
 
-- 機械強制: **planned**（対象クレートがまだ存在しない。
-  🔴 **クレートを作った時点で active になる。それまで active と書かないこと**）
+- 機械強制: **active**（`scopegrep-core` が `#![no_std]`。到達不能性はコンパイラが守り
+  （実測: [C-9](quality/gate-proofs.md)）、**宣言そのものが消えていないこと**は `CNF-007` が見る。
+  🔑 宣言が消えれば `std` が黙って戻るので、コンパイラだけでは片手落ちである）
 
 ### ARC-004 — 外部依存は許可制
 
@@ -458,8 +464,9 @@ CI 側にしか無い検査を作らない。検査を足したくなったら�
 実装が入った時点で `cargo-llvm-cov` の下限を `Makefile` に置き、
 **上げる方向にしか動かさない。**
 
-- 機械強制: **planned**（実装が無いため測る対象が無い。
-  🔴 足場のテスト1本で 100% を主張しないこと）
+- 機械強制: **planned**（実装は入ったが、下限をまだ `Makefile` に置いていない。
+  🔴 下限を置くまで active と書かないこと。数字を測っていない段階で
+  カバレッジを主張しないこと）
 
 ### QLT-009 — 性能の主張は実測を伴う
 
@@ -483,6 +490,8 @@ lint が見ないもの、つまり**このリポジトリ固有の規約**を�
 | `CNF-004` | 役割を語らない型名の語尾・モジュール名を禁じる（RS-013） | **active** |
 | `CNF-005` | 不変条件を持つ型は自分のモジュールに単独で置く（RS-003） | planned |
 | `CNF-006` | `#[expect]` の `reason` が**実在する規則 ID**を引く／文書内リンクが実在する（QLT-006） | **active** |
+| `CNF-007` | 名前が `-core` で終わるクレートは、先頭の属性に `#![no_std]` を宣言する（ARC-003 / RS-015） | **active** |
+| `CNF-008` | `build.rs` を置かない／マニフェストから指さない（RS-010） | **active** |
 
 ### 検査対象と、その境界
 

@@ -44,10 +44,11 @@
 | C-6 | `#![forbid(unsafe_code)]` を `#[allow]` で抜ける | RS-010 | `error[E0453]: allow(unsafe_code) incompatible with previous forbid` |
 | C-7 | `no_std` クレートから `std::time` を使う | ARC-003 | `error[E0433]: cannot find module or crate 'std' in this scope` |
 | C-8 | クレート間の循環依存 | ARC-002 | ``error: cyclic package dependency: package `a` depends on itself`` |
+| C-9 | `scopegrep-core`（`#![no_std]`）に `use std::fs;` を書く | ARC-003 / RS-015 | ``error[E0432]: unresolved import `std` `` / ``use of unresolved module or unlinked crate `std` `` |
 
 ## 規約検査（CNF-0xx）の証明
 
-`xtask` の検査は **`cargo test -p xtask` の 22 ケース**が、
+`xtask` の検査は **`cargo test -p xtask` の 30 ケース**が、
 「意図的な違反で発火すること」と「正しいコードでは発火しないこと」の両方を持つ。
 検査を足すときは、この両方を同じコミットで書くこと。
 
@@ -59,6 +60,8 @@
 | `CNF-004` | 禁止語尾・禁止モジュール名 | **`Processor` は通る**（判断が要る語を機械で拒否しないことの証明） |
 | `CNF-006a` | 実在しない規則 ID・規則 ID の無い reason・複数行 `#[expect]` | 実在する規則 ID |
 | `CNF-006b` | 壊れた相対リンク | 外部 URL・アンカー |
+| `CNF-007` | `#![no_std]` の無い `-core` クレート・属性より後ろに書いた `#![no_std]` | 宣言のある `-core` クレート・`-core` で終わらないクレート |
+| `CNF-008` | `build.rs` そのもの・マニフェストの `build = "…"` | 素のマニフェスト・`rebuild.rs` のような似た名前 |
 
 ### リポジトリの実ファイルでの発火
 
@@ -68,6 +71,26 @@
 | --- | --- | --- |
 | P-12 | `docs/todo/current.md` のリンク先を実在しないファイルにする | `CNF-006: docs/todo/current.md:25 — リンク先 '../../scopegrep/testdata/nonexistent.yml' が存在しない` |
 | P-13 | `main.rs` の `#[expect]` の reason を `RS-999` に書き換える | `CNF-006: scopegrep/src/main.rs:15 — 'RS-999' は docs/coding-rules.md に無い規則 ID である` |
+| P-14 | `scopegrep-core/src/lib.rs` から `#![no_std]` を消す | ``CNF-007: scopegrep-core/src/lib.rs — `scopegrep-core` は中核クレートだが、先頭の属性に `#![no_std]` が無い（ARC-003）`` |
+| P-15 | `scopegrep-core/build.rs` を置く | ``CNF-008: scopegrep-core/build.rs — ビルドスクリプトである。ビルド時にコードを生成しない（RS-010）`` |
+| P-16 | `scopegrep-core/Cargo.toml` に `build = "generate.rs"` を書く | ``CNF-008: scopegrep-core/Cargo.toml:13 — マニフェストがビルドスクリプトを指している（RS-010）`` |
+
+### README の例が実際の出力と一致することの証明
+
+地雷2（README の出力例は「予定」であって実装ではない）を機械で塞いだのが
+`scopegrep/tests/readme.rs` である。README の ```` ```console ```` ブロックの
+`$ scopegrep …` / `$ grep …` をリポジトリのルートで実行し、続く行と完全一致するか見る。
+
+発火の確認: README の出力例の `steps[2]` を `steps[9]` に1文字書き換えて
+`cargo test -p scopegrep --test readme` を走らせた。
+
+```
+assertion `left == right` failed: README 50行目の例が実際の出力と違う: $ scopegrep 'cancelled()' scopegrep-core/testdata/
+```
+
+空振りしないことの確認: `$ scopegrep` の例が 0 件になったら失敗する
+（`the_readme_keeps_at_least_one_scopegrep_example`）。**例が消えたときに
+「全ての例が一致した」と言って緑になる形にしない。**
 
 ## この手順で見つかった実際の欠陥
 
@@ -97,7 +120,7 @@
 
 ## 追随
 
-- `CNF-001`〜`CNF-006`（`xtask`）を実装したら、各検査について
+- `CNF-0xx`（`xtask`）を足したら、各検査について
   「意図的な違反で発火すること」のテストを**検査器と同じコミットで**書き、ここに追記する
 - toolchain を上げたときは、削除・改名された lint が無いか確認する
   （実測: `clippy::string_to_string` は 1.98 で削除済みだった）

@@ -312,6 +312,103 @@ fn markdown_links(line: &str) -> impl Iterator<Item = &str> {
         .map(|(link, _)| link)
 }
 
+/// 中核クレートに要求する宣言。
+const NO_STD_ATTRIBUTE: &str = "#![no_std]";
+
+/// マニフェストの `[package] name`。
+fn package_name(file: &SourceFile) -> Option<&str> {
+    file.numbered_lines()
+        .find_map(|(_, line)| line.strip_prefix("name = \""))
+        .and_then(|rest| rest.split_once('"'))
+        .map(|(name, _)| name)
+}
+
+/// 桁 0 の**最初の属性行群**に `#![no_std]` があるか調べる。
+///
+/// 属性より後ろは見ない。`extern crate alloc;` のような実コードが1行でも来たら
+/// そこで打ち切る（クレート属性は先頭にしか書けない）。
+fn declares_no_std(file: &SourceFile) -> bool {
+    file.numbered_lines()
+        .map(|(_, line)| line.trim_end())
+        .take_while(|line| line.is_empty() || line.starts_with("//") || line.starts_with("#!["))
+        .any(|line| line == NO_STD_ATTRIBUTE)
+}
+
+/// CNF-007 — `-core` で終わるクレートは `#![no_std]` を宣言する（ARC-003 / RS-015）。
+///
+/// 🔑 `no_std` にすると `std::fs` / `std::env` / `std::time` が lint 違反ではなく
+/// **名前解決エラー**になる。この宣言が消えた瞬間、環境への到達不能性が黙って失われる。
+/// **消えたことに気づく仕掛けがここである。**
+pub(crate) fn core_crates_declare_no_std(files: &[SourceFile]) -> Vec<Violation> {
+    files
+        .iter()
+        .filter_map(|manifest| {
+            let name = package_name(manifest)?;
+            let directory = manifest.path().strip_suffix("Cargo.toml")?;
+            if !name.ends_with("-core") {
+                return None;
+            }
+            let library = format!("{directory}src/lib.rs");
+            match files.iter().find(|file| file.path() == library) {
+                Some(file) if declares_no_std(file) => None,
+                Some(_) => Some(Violation::new(
+                    "CNF-007",
+                    &library,
+                    0,
+                    format!(
+                        "`{name}` は中核クレートだが、先頭の属性に `{NO_STD_ATTRIBUTE}` が無い（ARC-003）"
+                    ),
+                )),
+                None => Some(Violation::new(
+                    "CNF-007",
+                    manifest.path(),
+                    0,
+                    format!("`{name}` は中核クレートだが `{library}` が無い（ARC-003）"),
+                )),
+            }
+        })
+        .collect()
+}
+
+/// ビルド時にコードを生成する経路の名前。
+const BUILD_SCRIPT: &str = "build.rs";
+
+/// マニフェストからビルドスクリプトを指す書き方。
+const BUILD_MANIFEST_KEY: &str = concat!("build", " = ");
+
+/// CNF-008 — `build.rs` を置かない（RS-010）。
+///
+/// 🔑 ビルド時のコード生成は「読んだコードと動いたコードが違う」経路そのものである。
+/// 依存が持ち込む `build.rs` は止められないが（それは ARC-004 の ADR の仕事）、
+/// **自分では書かない**ことは構文で守れる。
+pub(crate) fn no_build_script(file: &SourceFile) -> Vec<Violation> {
+    if Path::new(file.path())
+        .file_name()
+        .is_some_and(|name| name == BUILD_SCRIPT)
+    {
+        return vec![Violation::new(
+            "CNF-008",
+            file.path(),
+            0,
+            "ビルドスクリプトである。ビルド時にコードを生成しない（RS-010）".to_owned(),
+        )];
+    }
+    if !file.path().ends_with("Cargo.toml") {
+        return Vec::new();
+    }
+    production_lines(file)
+        .filter(|&(_, line)| line.starts_with(BUILD_MANIFEST_KEY))
+        .map(|(number, _)| {
+            Violation::new(
+                "CNF-008",
+                file.path(),
+                number,
+                "マニフェストがビルドスクリプトを指している（RS-010）".to_owned(),
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,6 +569,75 @@ mod tests {
             "#[expect(\n    clippy::print_stdout,\n    reason = \"RS-999: 無い規則\"\n)]\nfn f() {}\n",
         );
         assert_eq!(suppression_cites_rule(&file, &known()).len(), 1);
+    }
+
+    // ── CNF-007 ────────────────────────────────────────────────────────────
+
+    /// `-core` クレート1つ分のファイル並び。
+    fn core_crate(library: &str) -> Vec<SourceFile> {
+        vec![
+            fixture("a-core/Cargo.toml", "[package]\nname = \"a-core\"\n"),
+            fixture("a-core/src/lib.rs", library),
+        ]
+    }
+
+    #[test]
+    fn cnf007_catches_core_crate_without_no_std() {
+        let files = core_crate("//! 中核。\n\nextern crate alloc;\n");
+        assert_eq!(core_crates_declare_no_std(&files).len(), 1);
+    }
+
+    /// 属性より後ろに書いても宣言にはならない（クレート属性は先頭にしか書けない）。
+    #[test]
+    fn cnf007_catches_no_std_after_real_code() {
+        let files = core_crate("extern crate alloc;\n#![no_std]\n");
+        assert_eq!(core_crates_declare_no_std(&files).len(), 1);
+    }
+
+    #[test]
+    fn cnf007_allows_core_crate_with_no_std() {
+        let files = core_crate("//! 中核。\n\n#![no_std]\n\nextern crate alloc;\n");
+        assert!(core_crates_declare_no_std(&files).is_empty());
+    }
+
+    /// `-core` で終わらないクレートには要求しない。std を使うのが仕事である。
+    #[test]
+    fn cnf007_ignores_a_binary_crate() {
+        let files = vec![
+            fixture("a/Cargo.toml", "[package]\nname = \"a\"\n"),
+            fixture("a/src/main.rs", "fn main() {}\n"),
+        ];
+        assert!(core_crates_declare_no_std(&files).is_empty());
+    }
+
+    // ── CNF-008 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cnf008_catches_a_build_script() {
+        let file = fixture("a-core/build.rs", "fn main() {}\n");
+        assert_eq!(no_build_script(&file).len(), 1);
+    }
+
+    #[test]
+    fn cnf008_catches_a_manifest_pointing_at_one() {
+        let file = fixture(
+            "a/Cargo.toml",
+            "[package]\nname = \"a\"\nbuild = \"gen.rs\"\n",
+        );
+        assert_eq!(no_build_script(&file).len(), 1);
+    }
+
+    #[test]
+    fn cnf008_ignores_a_clean_manifest() {
+        let file = fixture("a/Cargo.toml", "[package]\nname = \"a\"\n");
+        assert!(no_build_script(&file).is_empty());
+    }
+
+    /// `rebuild.rs` のような名前を巻き込まない。見るのはファイル名そのものである。
+    #[test]
+    fn cnf008_ignores_a_similar_file_name() {
+        let file = fixture("a/src/rebuild.rs", "fn main() {}\n");
+        assert!(no_build_script(&file).is_empty());
     }
 
     // ── CNF-006b ───────────────────────────────────────────────────────────
