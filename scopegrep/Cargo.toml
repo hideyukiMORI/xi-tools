@@ -13,4 +13,7 @@ categories = ["command-line-utilities", "development-tools"]
 [lints]
 workspace = true
 
+# 🔴 依存はこれ1つ（ARC-004）。`path` と `version` の両方を書くのは、
+#    `cargo publish -p scopegrep` で単独 publish できる形を保つためである。
 [dependencies]
+scopegrep-core = { path = "../scopegrep-core", version = "0.0.0" }

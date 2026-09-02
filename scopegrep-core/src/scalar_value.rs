@@ -105,6 +105,23 @@ fn plain(rest: &str) -> String {
     rest.get(..cut).unwrap_or("").trim_end().to_owned()
 }
 
+/// クォートを**1枚だけ**外す。中身のエスケープは解かない。
+///
+/// キーの扱い（`mapping_entry`）と同じ規則をラベルにも当てる。
+/// `"Build"` のラベルは `Build`、`'A ''b'''` のラベルは `A ''b''` である。
+/// 🔑 ラベルは**表示のための識別子**であって検索対象ではないので、
+/// 値の「原文のまま」規則（設計メモ「検索の意味」）は当てはめない。
+pub(crate) fn unquote(text: &str) -> &str {
+    let mut chars = text.chars();
+    let (Some(first), Some(last)) = (chars.next(), chars.next_back()) else {
+        return text;
+    };
+    if first == last && (first == '"' || first == '\'') {
+        return chars.as_str();
+    }
+    text
+}
+
 /// クォートの閉じ位置（閉じクォートの次のバイト位置）を返す。
 ///
 /// `"…"` は `\` エスケープ、`'…'` は `''` エスケープを見る。
@@ -171,7 +188,25 @@ fn inside_quote(open: char, c: char, escaped: &mut bool) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, scan_flow, scan_quoted};
+    use super::{parse, scan_flow, scan_quoted, unquote};
+
+    #[test]
+    fn unquote_strips_one_layer_of_double_quotes() {
+        assert_eq!(unquote("\"Build\""), "Build");
+    }
+
+    /// 🔴 1枚だけ外す。中の `''` エスケープは解かない。
+    #[test]
+    fn unquote_strips_one_layer_of_single_quotes() {
+        assert_eq!(unquote("'A ''b'''"), "A ''b''");
+    }
+
+    #[test]
+    fn unquote_leaves_a_plain_scalar_alone() {
+        assert_eq!(unquote("Build"), "Build");
+        assert_eq!(unquote("\""), "\"");
+        assert_eq!(unquote(""), "");
+    }
     use crate::parse_error_kind::ParseErrorKind;
     use crate::unsupported_syntax::UnsupportedSyntax;
 

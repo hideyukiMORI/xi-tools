@@ -42,6 +42,10 @@
 慣習であって YAML の規格ではない。だから **JSON には `label` として独立したフィールドで出し、
 `pointer` には混ぜない**。ラベルが無ければ `[i]` だけになる（D-3）。
 
+ラベルはキーと同じく**クォートを1枚外した**テキスト（`name: "Build"` のラベルは `Build`。エスケープは解除しない）。
+ラベルは表示のための識別子であって検索対象ではないので、値の「原文のまま」規則は適用しない。
+`name:` が他のキーより後に書かれていてもラベルは付く（走査後に当てはめる）。
+
 ### D-2 — 手書きの行指向スキャナ
 
 選定基準は「**コメント内のヒットを設定値と区別できる**こと」が第一で、
@@ -106,7 +110,7 @@ impl Document {
 impl Hit {
     pub fn path(&self) -> &ScopePath;
     pub fn line(&self) -> LineNumber;       // 1 始まり
-    pub fn column(&self) -> Column;         // 1 始まり・文字数（バイトではない）
+    pub fn column(&self) -> Column;         // 一致の先頭。1 始まり・文字数（バイトではない）
     pub fn value(&self) -> &str;            // ヒットした行のスカラーテキスト（原文のまま）
 }
 
@@ -120,6 +124,7 @@ impl core::fmt::Display for ScopePath      // 人向け: jobs.e2e.steps[2] "Uplo
 - `LineNumber` / `Column` は非公開フィールドの newtype（RS-001）。0 は作れない
 - 型ごとに1ファイル（RS-012 / CNF-003）。`ParseError` は `line()` と `Display` を持ち、`core::error::Error` を実装する
 - **`Document` の内部表現（木か平坦な表か）は公開しない。** API は上の4つの型だけ
+- `pub use` を書かない（RS-008）ので、型はモジュール経由で見える（`scopegrep_core::document::Document` 等）。crate 直下にあるのは `parse` だけ
 
 ### 検索の意味
 
@@ -214,7 +219,7 @@ scopegrep-core/testdata/workflow-with-comment.yml:46: jobs.e2e.steps[2] "Upload 
 **機械向け（`--json`）** — 1ヒット1行、キーはこの順で固定:
 
 ```json
-{"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":33,"column":13,"pointer":"/jobs/frontend-check/steps/3/if","path":"jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if","label":"Audit (fail on high/critical)","value":"${{ !cancelled() }}"}
+{"file":"scopegrep-core/testdata/workflow-with-comment.yml","line":33,"column":18,"pointer":"/jobs/frontend-check/steps/3/if","path":"jobs.frontend-check.steps[3] \"Audit (fail on high/critical)\" .if","label":"Audit (fail on high/critical)","value":"${{ !cancelled() }}"}
 ```
 
 - `label` が無いときは `null`。キーは常に7つ
