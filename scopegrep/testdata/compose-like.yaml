@@ -1,0 +1,30 @@
+# v1.1 で読めるようになった3つの構文を1ファイルに集めた fixture。
+# 🔴 架空のデータである。手で書いたもので、実在の設定ファイルから写していない。
+services:
+  api:
+    image: registry.example.test/api:1.2.3
+    healthcheck:
+      # `[` が次の行に来る形。実ファイル計測ではこれが 11 件で最多だった。
+      test:
+        [
+          "CMD-SHELL",
+          "curl -f http://localhost:8080/healthz || exit 1"
+        ]
+      interval: 10s
+    # 行内で開いて次の行で閉じる形（計測では 3 件）。
+    command: ["serve", "--port", "8080",
+              "--log-level=debug"]
+    environment: !override
+      DATABASE_URL: postgres://api:example@db:5432/api
+    ports: !reset []
+  db:
+    image: postgres:16
+    ports:
+      - !override
+        - '15432:5432'
+    deploy:
+      replicas: !!str 2
+# 1行のフローマッピングを要素に持つシーケンス（v1 のバグだった形）。
+parameters:
+  - { $ref: '#/components/parameters/IdPath' }
+  - { $ref: '#/components/parameters/PageQuery' }

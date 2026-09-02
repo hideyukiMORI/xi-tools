@@ -4,6 +4,8 @@ use alloc::borrow::ToOwned;
 use alloc::string::String;
 
 use crate::column::Column;
+use crate::flow_scan::FlowScan;
+use crate::flow_state::FlowState;
 use crate::malformed_input::MalformedInput;
 use crate::parse_error_kind::ParseErrorKind;
 use crate::unsupported_syntax::UnsupportedSyntax;
@@ -21,6 +23,7 @@ pub(crate) struct ScalarValue {
     text: String,
     column: Column,
     comment: Option<usize>,
+    flow: FlowState,
 }
 
 impl ScalarValue {
@@ -30,7 +33,25 @@ impl ScalarValue {
             text,
             column,
             comment,
+            flow: FlowState::Complete,
         }
+    }
+
+    /// 閉じていないフロー記法の**最初の行**を作る。
+    ///
+    /// 行末までが値であり、行末コメントは無い（`#` は括弧の中なので値の一部である）。
+    pub(crate) fn opening(text: String, column: Column, scan: FlowScan) -> Self {
+        Self {
+            text,
+            column,
+            comment: None,
+            flow: FlowState::Unclosed(scan),
+        }
+    }
+
+    /// この行でフロー記法が閉じたか、次の行へ続くか。
+    pub(crate) fn flow(&self) -> FlowState {
+        self.flow
     }
 
     /// 原文のままの値。
@@ -56,9 +77,12 @@ impl ScalarValue {
 
 /// `line` の `start` バイト位置から始まる1行スカラーを読む。
 ///
+/// フロー記法が行内で閉じないときは、**その行までを値として返す**
+/// （[`ScalarValue::flow`] が続きを持ち越す。v1.1）。
+///
 /// # Errors
 ///
-/// アンカー・エイリアス・タグ・行内で閉じないクォートやフロー記法はエラーにする。
+/// アンカー・エイリアス・行内で閉じないクォートはエラーにする。
 pub(crate) fn parse(line: &str, start: usize) -> Result<ScalarValue, ParseErrorKind> {
     let rest = line.get(start..).unwrap_or("");
     let column = Column::after(line.get(..start).unwrap_or("").chars().count());
@@ -68,9 +92,17 @@ pub(crate) fn parse(line: &str, start: usize) -> Result<ScalarValue, ParseErrorK
     let end = match first {
         '&' => return Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Anchor)),
         '*' => return Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Alias)),
-        '!' => return Err(ParseErrorKind::Unsupported(UnsupportedSyntax::Tag)),
         '"' | '\'' => closing(scan_quoted(rest, first), UnsupportedSyntax::MultiLineScalar)?,
-        '[' | '{' => closing(scan_flow(rest), UnsupportedSyntax::MultiLineFlow)?,
+        '[' | '{' => {
+            let mut scan = FlowScan::start();
+            let Some(end) = scan.advance(rest) else {
+                // 🔴 閉じていない間は**行末までが値**である。括弧の中の `#` は
+                // コメントではない（設計メモ「フロー記法」・v1.1 の割り切り）。
+                // 行末コメントとして扱うのは、閉じ括弧より**後ろ**の `#` だけである。
+                return Ok(ScalarValue::opening(rest.to_owned(), column, scan));
+            };
+            end
+        }
         _ => return Ok(plain(rest, column, start)),
     };
     bounded(rest, end, column, start)
@@ -81,8 +113,27 @@ fn closing(end: Option<usize>, missing: UnsupportedSyntax) -> Result<usize, Pars
     end.ok_or(ParseErrorKind::Unsupported(missing))
 }
 
+/// 値の先頭にタグ（`!override` / `!!str`）があれば、その後ろの位置を返す。
+///
+/// 🔑 タグは**値ではない**ので、読み飛ばして検索に当てない（設計メモ・v1.1）。
+/// 実ファイル計測では compose の override が 3 件これで落ちていた。
+/// 後ろに何も残らなければ「空の値」と同じで、次の行の入れ子を受ける。
+pub(crate) fn skip_tag(line: &str, at: usize) -> usize {
+    let rest = line.get(at..).unwrap_or("");
+    if !rest.starts_with('!') {
+        return at;
+    }
+    let width = rest.find(' ').unwrap_or(rest.len());
+    let after = at.saturating_add(width);
+    let tail = line.get(after..).unwrap_or("");
+    after.saturating_add(
+        tail.len()
+            .saturating_sub(tail.trim_start_matches(' ').len()),
+    )
+}
+
 /// 閉じ位置が分かっている値を切り出す。**後ろに許すのは空白と行末コメントだけ**である。
-fn bounded(
+pub(crate) fn bounded(
     rest: &str,
     end: usize,
     column: Column,
@@ -169,49 +220,10 @@ pub(crate) fn scan_quoted(rest: &str, quote: char) -> Option<usize> {
     }
 }
 
-/// フロー記法の閉じ位置（閉じ括弧の次のバイト位置）を返す。
-///
-/// **中には入らない**。1つのスカラーとして原文のまま持つ（設計メモの部分集合）。
-fn scan_flow(rest: &str) -> Option<usize> {
-    let mut depth = 0_usize;
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for (index, c) in rest.char_indices() {
-        if let Some(open) = quote {
-            quote = inside_quote(open, c, &mut escaped);
-            continue;
-        }
-        match c {
-            '\'' | '"' => quote = Some(c),
-            '[' | '{' => depth = depth.saturating_add(1_usize),
-            ']' | '}' => {
-                depth = depth.saturating_sub(1_usize);
-                if depth == 0_usize {
-                    return Some(index.saturating_add(1_usize));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// クォートの内側で1文字進む。閉じたら `None` を返す。
-fn inside_quote(open: char, c: char, escaped: &mut bool) -> Option<char> {
-    if *escaped {
-        *escaped = false;
-        return Some(open);
-    }
-    if c == '\\' && open == '"' {
-        *escaped = true;
-        return Some(open);
-    }
-    if c == open { None } else { Some(open) }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{parse, scan_flow, scan_quoted, unquote};
+    use super::{parse, scan_quoted, skip_tag, unquote};
+    use crate::flow_state::FlowState;
 
     #[test]
     fn unquote_strips_one_layer_of_double_quotes() {
@@ -291,13 +303,37 @@ mod tests {
         assert_eq!(scan_quoted("'a''b' rest", '\''), Some(6_usize));
     }
 
+    /// 行内で閉じたフローは、その場で完結する。
     #[test]
-    fn scan_flow_ignores_brackets_inside_quotes() {
-        assert_eq!(scan_flow("[a, \"]\", b] x"), Some(11_usize));
+    fn a_closed_flow_is_complete() {
+        let value = parse("a: [x, y] # note", 3_usize).expect("フロー記法");
+        assert_eq!(value.text(), "[x, y]");
+        assert_eq!(value.comment(), Some(10_usize));
+        assert!(matches!(value.flow(), FlowState::Complete));
+    }
+
+    /// 🔴 閉じないフローは**行末までが値**になり、続きを持ち越す。
+    /// 括弧の中の `#` は行末コメントではない（v1.1 の割り切り）。
+    #[test]
+    fn an_open_flow_keeps_the_rest_of_the_line_as_its_value() {
+        let value = parse("a: [x, # y", 3_usize).expect("フロー記法");
+        assert_eq!(value.text(), "[x, # y");
+        assert_eq!(value.comment(), None);
+        assert!(matches!(value.flow(), FlowState::Unclosed(_)));
     }
 
     #[test]
-    fn scan_flow_reports_an_open_bracket() {
-        assert_eq!(scan_flow("[a, b"), None);
+    fn skip_tag_moves_past_the_tag_and_its_spaces() {
+        assert_eq!(skip_tag("a: !!str 123", 3_usize), 9_usize);
+        assert_eq!(skip_tag("a: !override", 3_usize), 12_usize);
+        assert_eq!(skip_tag("a: plain", 3_usize), 3_usize);
+    }
+
+    /// タグを読み飛ばした後ろは、普通の値として読める。
+    #[test]
+    fn a_value_after_a_tag_is_read_normally() {
+        let at = skip_tag("a: !reset []", 3_usize);
+        let value = parse("a: !reset []", at).expect("タグの後ろの値");
+        assert_eq!(value.text(), "[]");
     }
 }

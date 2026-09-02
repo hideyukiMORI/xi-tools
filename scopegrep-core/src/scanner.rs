@@ -12,8 +12,10 @@ use alloc::vec::Vec;
 use crate::block_header::BlockHeader;
 use crate::column::Column;
 use crate::comment_line::CommentLine;
+use crate::continuation::Continuation;
 use crate::document::Document;
 use crate::entry_value::EntryValue;
+use crate::flow_state::FlowState;
 use crate::frame::Frame;
 use crate::line_number::LineNumber;
 use crate::malformed_input::MalformedInput;
@@ -21,6 +23,7 @@ use crate::mapping_entry::{self, MappingEntry};
 use crate::parse_error::ParseError;
 use crate::parse_error_kind::ParseErrorKind;
 use crate::pending_block::PendingBlock;
+use crate::pending_flow::PendingFlow;
 use crate::scalar_line::ScalarLine;
 use crate::scalar_value::{self, ScalarValue};
 use crate::scope_path::ScopePath;
@@ -34,7 +37,7 @@ pub(crate) struct Scanner {
     scalars: Vec<ScalarLine>,
     comments: Vec<CommentLine>,
     labels: BTreeMap<String, String>,
-    block: Option<PendingBlock>,
+    pending: Option<Continuation>,
     line: LineNumber,
     started: bool,
     document_started: bool,
@@ -48,7 +51,7 @@ impl Scanner {
             scalars: Vec::new(),
             comments: Vec::new(),
             labels: BTreeMap::new(),
-            block: None,
+            pending: None,
             line: LineNumber::first(),
             started: false,
             document_started: false,
@@ -62,9 +65,9 @@ impl Scanner {
         result
     }
 
-    /// 1行の中身。ブロックスカラーの内容が最優先である。
+    /// 1行の中身。**続きを待っている行（ブロックスカラー・フロー記法）が最優先**である。
     fn read(&mut self, line: &str) -> Result<(), ParseError> {
-        if self.feed_block(line) {
+        if self.feed_pending(line)? {
             return Ok(());
         }
         let Some(indent) = self.indentation(line)? else {
@@ -110,6 +113,9 @@ impl Scanner {
             self.align(indent, true)?;
             return self.sequence_item(line, indent);
         }
+        if opens_flow(content) {
+            return self.nested_flow(line, indent);
+        }
         let found = mapping_entry::parse(line, indent).map_err(|kind| self.error(kind))?;
         let Some(entry) = found else {
             return Err(self.error(ParseErrorKind::Unsupported(
@@ -119,6 +125,31 @@ impl Scanner {
         self.align(indent, false)?;
         let comment = entry.comment();
         self.apply_entry(entry, indent)?;
+        self.record_trailing(line, comment);
+        Ok(())
+    }
+
+    /// `key:` の**次の行**に置かれたフロー記法を、そのキーの値として読む。
+    ///
+    /// compose の `healthcheck.test:` がこの形で、実ファイル計測では
+    /// 読めなかった 18 件のうち 11 件がこれだった（設計メモ）。
+    /// 段は積まない。**これは入れ子ではなく、直前のキーの値**である。
+    fn nested_flow(&mut self, line: &str, indent: usize) -> Result<(), ParseError> {
+        let inconsistent = ParseErrorKind::Malformed(MalformedInput::InconsistentIndentation);
+        let Some(parent) = self
+            .stack
+            .last()
+            .filter(|frame| frame.is_open() && frame.indent() < indent)
+            .map(Frame::indent)
+        else {
+            return Err(self.error(inconsistent));
+        };
+        if let Some(top) = self.stack.last_mut() {
+            top.set_open(false);
+        }
+        let value = scalar_value::parse(line, indent).map_err(|kind| self.error(kind))?;
+        let comment = value.comment();
+        self.record_scalar(value, parent);
         self.record_trailing(line, comment);
         Ok(())
     }
@@ -201,8 +232,12 @@ impl Scanner {
     }
 
     /// `- ` で始まる行を読む。
+    ///
+    /// 🔴 要素の先頭がフロー記法（`[` / `{`）なら、**`key: value` として読まない**。
+    /// v1 は `- { $ref: '…' }` の `{ $ref` をキーと誤読して「余分な文字」にしていた。
     fn sequence_item(&mut self, line: &str, indent: usize) -> Result<(), ParseError> {
-        let start = item_start(line, indent);
+        // タグ（`- !override`）は値ではないので読み飛ばす（v1.1）。
+        let start = scalar_value::skip_tag(line, item_start(line, indent));
         let rest = line.get(start..).unwrap_or("");
         if rest.is_empty() || rest.starts_with('#') {
             self.start_item(true);
@@ -216,17 +251,25 @@ impl Scanner {
             )));
         }
         self.start_item(false);
-        let found = mapping_entry::parse(line, start).map_err(|kind| self.error(kind))?;
-        if let Some(entry) = found {
-            self.stack.push(Frame::mapping(start));
-            let comment = entry.comment();
-            self.apply_entry(entry, start)?;
-            self.record_trailing(line, comment);
-            return Ok(());
+        if opens_flow(rest) {
+            return self.item_scalar(line, start, indent);
         }
+        let found = mapping_entry::parse(line, start).map_err(|kind| self.error(kind))?;
+        let Some(entry) = found else {
+            return self.item_scalar(line, start, indent);
+        };
+        self.stack.push(Frame::mapping(start));
+        let comment = entry.comment();
+        self.apply_entry(entry, start)?;
+        self.record_trailing(line, comment);
+        Ok(())
+    }
+
+    /// 要素そのものがスカラー（フロー・クォート・プレーン）である場合。
+    fn item_scalar(&mut self, line: &str, start: usize, indent: usize) -> Result<(), ParseError> {
         let value = scalar_value::parse(line, start).map_err(|kind| self.error(kind))?;
         let comment = value.comment();
-        self.record(value);
+        self.record_scalar(value, indent);
         self.record_trailing(line, comment);
         Ok(())
     }
@@ -256,7 +299,7 @@ impl Scanner {
             EntryValue::Empty => Ok(()),
             EntryValue::Scalar(scalar) => {
                 self.remember_label(&key, &scalar);
-                self.record(scalar);
+                self.record_scalar(scalar, indent);
                 Ok(())
             }
             EntryValue::Block(header) => {
@@ -380,12 +423,32 @@ impl Scanner {
             .push(CommentLine::new(path, self.line, column, text));
     }
 
-    /// スカラー1行を表に足す。
-    fn record(&mut self, value: ScalarValue) {
+    /// スカラー1行を表に足す。フロー記法が閉じていなければ、続きを待つ状態に入る。
+    ///
+    /// `parent_indent` はこの値を導入したキー（または `-`）の桁である。
+    /// 続きの行はそれより深くなければならない。
+    fn record_scalar(&mut self, value: ScalarValue, parent_indent: usize) {
+        let flow = value.flow();
         let path = self.current_path();
+        self.record(&path, value);
+        match flow {
+            FlowState::Complete => {}
+            FlowState::Unclosed(scan) => {
+                self.pending = Some(Continuation::Flow(PendingFlow::new(
+                    path,
+                    parent_indent,
+                    self.line,
+                    scan,
+                )));
+            }
+        }
+    }
+
+    /// スカラー1行を、所属パスを指定して表に足す。
+    fn record(&mut self, path: &ScopePath, value: ScalarValue) {
         let line = self.line;
         self.scalars.push(ScalarLine::new(
-            path,
+            path.clone(),
             line,
             value.column(),
             value.into_text(),
@@ -396,51 +459,89 @@ impl Scanner {
     fn begin_block(&mut self, header: BlockHeader, indent: usize) {
         let path = self.current_path();
         let explicit = header.indent().map(|width| indent.saturating_add(width));
-        self.block = Some(PendingBlock::new(path, indent, explicit));
+        self.pending = Some(Continuation::Block(PendingBlock::new(
+            path, indent, explicit,
+        )));
+    }
+
+    /// 続きを待っている行を取り込む。取り込んだら `true`。
+    ///
+    /// 🔑 **ここで取り込む行は構文解析にかけない。** ブロックスカラーの内容の `#` も、
+    /// 括弧の中の `#` も、コメントではなく値だからである。
+    fn feed_pending(&mut self, line: &str) -> Result<bool, ParseError> {
+        let Some(pending) = self.pending.take() else {
+            return Ok(false);
+        };
+        match pending {
+            Continuation::Block(block) => Ok(self.feed_block(block, line)),
+            Continuation::Flow(flow) => self.feed_flow(flow, line).map(|()| true),
+        }
     }
 
     /// ブロックスカラーの内容行なら取り込む。取り込んだら `true`。
-    ///
-    /// 内容の中の `#` は**コメントではない**。ここで取り込む行は構文解析にかけない。
-    fn feed_block(&mut self, line: &str) -> bool {
-        let Some((parent_indent, known)) = self
-            .block
-            .as_ref()
-            .map(|block| (block.parent_indent(), block.indent()))
-        else {
-            return false;
-        };
+    fn feed_block(&mut self, mut block: PendingBlock, line: &str) -> bool {
         if line.trim().is_empty() {
-            if let Some(start) = known {
-                self.record_block_line(line, start);
+            if let Some(start) = block.indent() {
+                self.record_block_line(&block, line, start);
             }
+            self.pending = Some(Continuation::Block(block));
             return true;
         }
         let indent = leading_spaces(line);
-        let Some(start) = block_content_start(parent_indent, known, indent) else {
-            self.block = None;
+        let Some(start) = block_content_start(block.parent_indent(), block.indent(), indent) else {
+            // 桁が戻った。ブロックは終わりで、この行は普通に読み直す。
             return false;
         };
-        self.set_block_indent(start);
-        self.record_block_line(line, start);
+        block.set_indent(start);
+        self.record_block_line(&block, line, start);
+        self.pending = Some(Continuation::Block(block));
         true
     }
 
-    /// 内容の桁を確定させる（何度呼んでも同じ）。
-    fn set_block_indent(&mut self, indent: usize) {
-        if let Some(block) = self.block.as_mut() {
-            block.set_indent(indent);
-        }
+    /// ブロックスカラーの内容行を1行ぶん表に足す。
+    fn record_block_line(&mut self, block: &PendingBlock, line: &str, start: usize) {
+        let text = line.get(start..).unwrap_or("").to_owned();
+        self.scalars.push(ScalarLine::new(
+            block.path().clone(),
+            self.line,
+            Column::after(start),
+            text,
+        ));
     }
 
-    /// ブロックスカラーの内容行を1行ぶん表に足す。
-    fn record_block_line(&mut self, line: &str, start: usize) {
-        let Some(path) = self.block.as_ref().map(|block| block.path().clone()) else {
-            return;
+    /// 閉じていないフロー記法の続きを1行取り込む。
+    ///
+    /// 各行は**同じパスの別のスカラー行**になる（ブロックスカラーと同じ扱い）。
+    /// 桁が親まで戻ったら、そこで「閉じていない」と分かる。
+    ///
+    /// # Errors
+    ///
+    /// 閉じないまま桁が戻ったとき、および閉じ括弧の後ろに値が続くとき。
+    fn feed_flow(&mut self, mut flow: PendingFlow, line: &str) -> Result<(), ParseError> {
+        if line.trim().is_empty() {
+            self.pending = Some(Continuation::Flow(flow));
+            return Ok(());
+        }
+        let indent = leading_spaces(line);
+        if indent < flow.parent_indent() {
+            // 親より浅い行が来た。ここまで来れば、閉じないことが確定している。
+            return Err(unclosed_flow(&flow));
+        }
+        let rest = line.get(indent..).unwrap_or("");
+        let column = Column::after(indent);
+        let Some(end) = flow.advance(rest) else {
+            let text = rest.to_owned();
+            self.record(flow.path(), ScalarValue::new(text, column, None));
+            self.pending = Some(Continuation::Flow(flow));
+            return Ok(());
         };
-        let text = line.get(start..).unwrap_or("").to_owned();
-        self.scalars
-            .push(ScalarLine::new(path, self.line, Column::after(start), text));
+        // 閉じた。後ろに許すのは空白と行末コメントだけである（1行のフローと同じ）。
+        let value =
+            scalar_value::bounded(rest, end, column, indent).map_err(|kind| self.error(kind))?;
+        let comment = value.comment();
+        self.record(flow.path(), value);
+        self.record_trailing(line, comment);
+        Ok(())
     }
 
     /// 今の行のエラーを作る。**行番号を持たないエラーは作れない**。
@@ -448,10 +549,26 @@ impl Scanner {
         ParseError::new(self.line, kind)
     }
 
+    /// 閉じていないフローが残っていれば、それを報告するエラー。
+    fn unfinished(&self) -> Option<ParseError> {
+        match self.pending {
+            // ブロックスカラーは EOF で終わってよい。閉じ括弧が要るのはフローだけである。
+            None | Some(Continuation::Block(_)) => None,
+            Some(Continuation::Flow(ref flow)) => Some(unclosed_flow(flow)),
+        }
+    }
+
     /// 走査を終えて、ラベルを当てはめた文書にする。
-    fn finish(self) -> Document {
+    ///
+    /// # Errors
+    ///
+    /// フロー記法が閉じないままファイルが終わったとき。
+    fn finish(self) -> Result<Document, ParseError> {
+        if let Some(error) = self.unfinished() {
+            return Err(error);
+        }
         let labels = self.labels;
-        Document::new(
+        Ok(Document::new(
             self.scalars
                 .into_iter()
                 .map(|scalar| scalar.with_labels(&labels))
@@ -460,8 +577,23 @@ impl Scanner {
                 .into_iter()
                 .map(|comment| comment.with_labels(&labels))
                 .collect(),
-        )
+        ))
     }
+}
+
+/// 閉じていないフロー記法のエラー。**行番号は括弧を開いた行**である。
+///
+/// 🔑 閉じていないと分かるのは後の行（または EOF）だが、直すべきなのは開いた行である。
+fn unclosed_flow(flow: &PendingFlow) -> ParseError {
+    ParseError::new(
+        flow.line(),
+        ParseErrorKind::Unsupported(UnsupportedSyntax::UnclosedFlow),
+    )
+}
+
+/// この内容がフロー記法で始まるか。
+fn opens_flow(content: &str) -> bool {
+    content.starts_with('[') || content.starts_with('{')
 }
 
 /// ブロックスカラーの内容行として取り込むなら、その内容の桁。
@@ -510,7 +642,7 @@ pub(crate) fn run(source: &str) -> Result<Document, ParseError> {
     for raw in text.split('\n') {
         scanner.feed(raw.strip_suffix('\r').unwrap_or(raw))?;
     }
-    Ok(scanner.finish())
+    scanner.finish()
 }
 
 #[cfg(test)]
@@ -702,6 +834,166 @@ mod tests {
         assert_eq!(only(single, "target").path().label(), Some("A ''b''"));
     }
 
+    // ── 複数行にまたがるフロー記法（v1.1）──────────────────────────────────
+
+    /// `key:` の次の行に `[` が来る形。compose の `healthcheck.test:` がこれである
+    /// （実ファイル計測で 11 件。読めなかった 18 件の中で最多の形）。
+    #[test]
+    fn a_flow_may_open_on_the_line_after_its_key() {
+        let source = concat!(
+            "healthcheck:\n",
+            "  test:\n",
+            "    [\n",
+            "      \"CMD-SHELL\",\n",
+            "      \"curl -f http://localhost/ || exit 1\"\n",
+            "    ]\n",
+        );
+        let hit = only(source, "CMD-SHELL");
+        assert_eq!(hit.path().pointer(), "/healthcheck/test");
+        assert_eq!(hit.line().get(), 4_u32);
+        assert_eq!(hit.value(), "\"CMD-SHELL\",");
+        // 内容は7桁目（`"`）から始まり、一致はその次の桁で始まる。
+        assert_eq!(hit.column().get(), 8_u32);
+    }
+
+    /// 行内で開いて、次の行で閉じる形（実ファイル計測で 3 件）。
+    /// **各行が同じパスの別のスカラー行**になる（ブロックスカラーと同じ扱い）。
+    #[test]
+    fn a_flow_opened_in_line_continues_on_the_next_line() {
+        let source = "  other: [\"CMD\", \"ping\",\n          \"-p${PASSWORD}\"]\n";
+        let first = only(source, "ping");
+        assert_eq!(first.path().pointer(), "/other");
+        assert_eq!(first.line().get(), 1_u32);
+        assert_eq!(first.value(), "[\"CMD\", \"ping\",");
+
+        let second = only(source, "PASSWORD");
+        assert_eq!(second.path().pointer(), "/other");
+        assert_eq!(second.line().get(), 2_u32);
+        assert_eq!(second.value(), "\"-p${PASSWORD}\"]");
+    }
+
+    /// 括弧の深さとクォートを行をまたいで追う。**クォートの中の `]` は閉じない。**
+    #[test]
+    fn brackets_and_quotes_are_tracked_across_lines() {
+        let source = "a: [\n  \"x ] y\",\n  [1, 2],\n]\nb: target\n";
+        assert_eq!(only(source, "x ] y").path().pointer(), "/a");
+        assert_eq!(only(source, "[1, 2]").path().pointer(), "/a");
+        // フローが閉じた後は、普通に読み続ける。
+        assert_eq!(only(source, "target").path().pointer(), "/b");
+    }
+
+    /// 🔴 フローの**中**の `#` はコメントではない。値の一部である。
+    #[test]
+    fn a_hash_inside_a_multi_line_flow_is_a_value() {
+        let source = "a: [\n  \"x # target\",\n]\n";
+        let hit = only(source, "target");
+        assert_eq!(hit.value(), "\"x # target\",");
+        assert_eq!(with_comments(source, "target").len(), 1_usize);
+    }
+
+    /// 閉じ括弧の**後ろ**の `#` は行末コメントである（`--comments` の対象）。
+    #[test]
+    fn a_comment_after_the_closing_bracket_is_a_trailing_comment() {
+        let source = "a: [\n  1,\n] # target\n";
+        assert!(hits(source, "target").is_empty());
+        let hit = sole(source, "target");
+        assert_eq!(hit.kind(), HitKind::Comment);
+        assert_eq!(hit.path().pointer(), "/a");
+        assert_eq!(hit.line().get(), 3_u32);
+    }
+
+    /// シーケンスの要素として書かれたフローも、複数行にまたがれる。
+    #[test]
+    fn a_sequence_item_may_hold_a_multi_line_flow() {
+        let source = "ports:\n  - [\n      \"8080:80\"\n    ]\n";
+        let hit = only(source, "8080:80");
+        assert_eq!(hit.path().pointer(), "/ports/0");
+        assert_eq!(hit.line().get(), 3_u32);
+    }
+
+    /// 閉じないまま終わったら**エラーのまま**である。行番号は `[` を開いた行。
+    #[test]
+    fn a_flow_that_never_closes_is_rejected() {
+        let error = failure("a: [one,\n  two\n");
+        assert_eq!(error.kind(), unsupported(UnsupportedSyntax::UnclosedFlow));
+        assert_eq!(error.line().get(), 1_u32);
+    }
+
+    /// 閉じないまま桁が親より浅くなったら、その時点で「閉じていない」と分かる。
+    /// **行番号は括弧を開いた行**である（直すべきなのはそこだから）。
+    #[test]
+    fn a_flow_that_loses_its_indent_is_rejected() {
+        let error = failure("a:\n  b: [one,\nc: two\n");
+        assert_eq!(error.kind(), unsupported(UnsupportedSyntax::UnclosedFlow));
+        assert_eq!(error.line().get(), 2_u32);
+    }
+
+    // ── タグ（v1.1）────────────────────────────────────────────────────────
+
+    /// `!override` の後ろの入れ子を通常どおり読む。
+    #[test]
+    fn a_tag_before_a_nested_mapping_is_skipped() {
+        let source = "environment: !override\n  POSTGRES_DB: target\n";
+        let hit = only(source, "target");
+        assert_eq!(hit.path().pointer(), "/environment/POSTGRES_DB");
+    }
+
+    /// タグの後ろに値があれば、それが値である。
+    #[test]
+    fn a_tag_before_a_value_is_skipped() {
+        assert_eq!(
+            only("ports: !reset [target]\n", "target").value(),
+            "[target]"
+        );
+        assert_eq!(only("name: !!str target\n", "target").value(), "target");
+    }
+
+    /// 🔴 タグ名は値ではないので、検索に当たらない。
+    #[test]
+    fn a_tag_name_is_never_a_hit() {
+        assert!(hits("name: !!str 123\n", "str").is_empty());
+        assert!(hits("environment: !override\n  a: 1\n", "override").is_empty());
+    }
+
+    /// シーケンス要素に付いたタグも読み飛ばし、その後ろの入れ子を受ける。
+    #[test]
+    fn a_tag_on_a_sequence_item_is_skipped() {
+        let source = "ports:\n  - !override\n    - 'target'\n";
+        let hit = only(source, "target");
+        assert_eq!(hit.path().pointer(), "/ports/0/0");
+    }
+
+    // ── フローを要素・値に持つ形（v1 のバグ）────────────────────────────────
+
+    /// 🔴 v1 は `{ $ref` を `key: value` の始まりと誤読して「余分な文字」にしていた。
+    #[test]
+    fn a_sequence_item_may_be_a_flow_mapping() {
+        let source = "parameters:\n  - { $ref: '#/components/parameters/IdPath' }\n";
+        let hit = only(source, "IdPath");
+        assert_eq!(hit.path().pointer(), "/parameters/0");
+        assert_eq!(hit.value(), "{ $ref: '#/components/parameters/IdPath' }");
+    }
+
+    #[test]
+    fn a_sequence_item_may_be_a_flow_sequence_or_a_quoted_scalar() {
+        assert_eq!(
+            only("on:\n  - [a, target]\n", "target").value(),
+            "[a, target]"
+        );
+        assert_eq!(
+            only("on:\n  - \"a: target\"\n", "target").value(),
+            "\"a: target\""
+        );
+    }
+
+    /// マッピングの値側の1行フローは v1 でも読めていた。**テストで固定する。**
+    #[test]
+    fn a_mapping_value_may_be_a_flow_mapping() {
+        let hit = only("a: { b: target }\n", "target");
+        assert_eq!(hit.path().pointer(), "/a");
+        assert_eq!(hit.value(), "{ b: target }");
+    }
+
     // ── コメント（`SearchScope::ValuesAndComments`）────────────────────────
 
     fn with_comments(source: &str, needle: &str) -> Vec<Hit> {
@@ -844,13 +1136,6 @@ mod tests {
     }
 
     #[test]
-    fn a_tag_is_rejected() {
-        let error = failure("a: !!str 1\n");
-        assert_eq!(error.kind(), unsupported(UnsupportedSyntax::Tag));
-        assert_eq!(error.line().get(), 1_u32);
-    }
-
-    #[test]
     fn a_merge_key_is_rejected() {
         let error = failure("a:\n  <<: *base\n");
         assert_eq!(error.kind(), unsupported(UnsupportedSyntax::MergeKey));
@@ -874,13 +1159,6 @@ mod tests {
             error.kind(),
             unsupported(UnsupportedSyntax::MultiLineScalar)
         );
-        assert_eq!(error.line().get(), 1_u32);
-    }
-
-    #[test]
-    fn a_flow_that_spans_lines_is_rejected() {
-        let error = failure("a: [one,\n  two]\n");
-        assert_eq!(error.kind(), unsupported(UnsupportedSyntax::MultiLineFlow));
         assert_eq!(error.line().get(), 1_u32);
     }
 

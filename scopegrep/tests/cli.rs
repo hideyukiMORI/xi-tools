@@ -24,6 +24,10 @@ const ANCHOR: &str = concat!(
     "/testdata/unsupported-anchor.yml"
 );
 
+/// v1.1 で読めるようになった3構文（複数行フロー・タグ・要素のフローマッピング）を
+/// 1ファイルに集めた fixture。**架空の手書きデータ**である。
+const COMPOSE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/compose-like.yaml");
+
 /// 走査順の判定に使う YAML。どのファイルにも1件だけヒットがある。
 const SEED: &str = "steps:\n  - name: A\n    run: target\n";
 
@@ -135,6 +139,75 @@ fn a_comment_only_match_still_exits_zero() {
     let asked = spawn(&["--comments", "1) 散文", FIXTURE]).expect("バイナリを起動できるはず");
     assert_eq!(stdout(&asked).lines().count(), 1);
     assert_eq!(asked.status.code(), Some(0_i32));
+}
+
+// ── 1c. v1.1 の3構文（実ファイル計測の 18 件が根拠）──────────────────────
+
+/// `<file>:<line>: ` で始まる1行を組み立てる。
+fn compose_line(line: u32, tail: &str) -> String {
+    format!("{COMPOSE}:{line}: {tail}\n")
+}
+
+/// 🔴 複数行にまたがるフロー記法。**各行が同じパスの別のスカラー行**として返る。
+/// `[` が次の行に来る形（11 件）と、行内で開いて次の行で閉じる形（3 件）の両方。
+#[test]
+fn a_multi_line_flow_reports_the_line_that_actually_matched() {
+    let output = spawn(&["8080", COMPOSE]).expect("バイナリを起動できるはず");
+    let expected = compose_line(
+        11,
+        "services.api.healthcheck.test = \"curl -f http://localhost:8080/healthz || exit 1\"",
+    ) + &compose_line(
+        15,
+        "services.api.command = [\"serve\", \"--port\", \"8080\",",
+    );
+    assert_eq!(stdout(&output), expected);
+    assert_eq!(stderr(&output), "");
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// タグ（`!override` / `!!str`）は読み飛ばし、その後ろの値と入れ子を通常どおり読む。
+#[test]
+fn a_tagged_value_keeps_its_scope() {
+    let output = spawn(&["5432", COMPOSE]).expect("バイナリを起動できるはず");
+    let expected = compose_line(
+        18,
+        "services.api.environment.DATABASE_URL = postgres://api:example@db:5432/api",
+    ) + &compose_line(24, "services.db.ports[0][0] = '15432:5432'");
+    assert_eq!(stdout(&output), expected);
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// 🔴 v1 は `- { $ref: '…' }` の `{ $ref` をキーと誤読して「余分な文字」にしていた。
+#[test]
+fn a_flow_mapping_element_is_one_scalar() {
+    let output = spawn(&["$ref", COMPOSE]).expect("バイナリを起動できるはず");
+    let expected = compose_line(
+        29,
+        "parameters[0] = { $ref: '#/components/parameters/IdPath' }",
+    ) + &compose_line(
+        30,
+        "parameters[1] = { $ref: '#/components/parameters/PageQuery' }",
+    );
+    assert_eq!(stdout(&output), expected);
+    assert_eq!(output.status.code(), Some(0_i32));
+}
+
+/// 🔑 フローの行と、フローについて書かれたコメントは**別枠**である。
+/// 括弧の中の `#` は値の一部なので、コメントとしては返らない。
+#[test]
+fn a_comment_about_a_flow_is_not_one_of_its_lines() {
+    let output = spawn(&["--comments", "[", COMPOSE]).expect("バイナリを起動できるはず");
+    let expected = compose_line(
+        7,
+        "services.api.healthcheck #comment = # `[` が次の行に来る形。実ファイル計測ではこれが 11 件で最多だった。",
+    ) + &compose_line(9, "services.api.healthcheck.test = [")
+        + &compose_line(
+            15,
+            "services.api.command = [\"serve\", \"--port\", \"8080\",",
+        )
+        + &compose_line(19, "services.api.ports = []");
+    assert_eq!(stdout(&output), expected);
+    assert_eq!(output.status.code(), Some(0_i32));
 }
 
 // ── 2. JSON 出力の完全一致 ──────────────────────────────────────────────────
