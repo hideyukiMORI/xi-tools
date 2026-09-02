@@ -40,8 +40,9 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 | --- | --- |
 | workspace の足場・CI | ✅ 完了（2026-09-01・`c1bbe4a`） |
 | コーディング規約と機械強制 | ✅ 完了（2026-09-02・`docs/coding-rules.md` / `xtask`） |
-| `scopegrep` 設計 | ✅ 確定（2026-09-02・D-1〜D-4・`docs/design/scopegrep.md`） |
-| `scopegrep` 実装 | ✅ v1 が動く（2026-09-02・PR #2）。YAML の部分集合・外はエラー |
+| `scopegrep` | ✅ **0.1.0 公開済み**（2026-09-02・crates.io / GitHub Release）。機能追加は施主判断で停止中 |
+| `fleet-top` | 🔲 **次**。未着手。最初の 1 手は試作で実測（`docs/design/fleet-top.md`） |
+| 候補一覧 | `docs/design/candidates.md`（作らないと決めたものも含む） |
 
 **動くもの:** `make check`（fmt / clippy / test / conformance / coverage / doc / build）と CI、`xtask`、
 `scopegrep`（`scopegrep-core` = no_std スキャナ＋検索、`scopegrep` = CLI）
@@ -49,7 +50,8 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 
 ### 次にやること
 
-正本は `docs/todo/current.md`。**部分集合を広げるなら、設計メモの表を先に更新してから実装する。**
+正本は `docs/todo/current.md`。次は **`fleet-top`** で、**作る前に 1 時間の試作で並列化の効果を測る**。
+`scopegrep` の部分集合を広げるなら、設計メモの表を先に更新してから実装する。
 
 ---
 

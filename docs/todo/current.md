@@ -26,17 +26,26 @@
 | GitHub Release | [v0.1.0](https://github.com/hideyukiMORI/xi-tools/releases/tag/v0.1.0) — Linux x86_64 / macOS arm64 / Windows x86_64（regex 入り・sha256 付き） |
 | 手元 | `cargo install scopegrep --features regex` で crates.io 版に入れ替え済み |
 
-**次の1手は無い。** 機能追加は施主判断で停止中。困った人（施主自身を含む）が現れたら、それを実測にして再開する。
+`scopegrep` の機能追加は施主判断で停止中。困った人（施主自身を含む）が現れたら、それを実測にして再開する。
 
-## 0.1.0 の後の候補（**保留**・施主判断 2026-09-02。困った人が現れてから）
+## 次の1手: `fleet-top` の試作で測る（施主決定 2026-09-02）
 
-- [ ] **部分集合を広げる**。候補: 複数ドキュメント（`---`・k8s manifest）、アンカー/エイリアス（compose）、
-      複数行プレーンスカラー。🔴 **設計メモの表を先に更新し、エラーになるテストを通るテストに変えてから実装**
-- [ ] TOML / JSON（同じ API で足す。設計メモの非目標を外す判断が先）
-- [ ] `docs/benchmarks/` に `grep` との比較（QLT-009。**測ってから書く**）
-- [x] `cargo-deny`（✅ 2026-09-02・ADR 0002 と同じ PR で導入。`deny.toml` / `make deny` / 証明 P-18〜P-20）
+正本は [`docs/design/fleet-top.md`](../design/fleet-top.md)。候補の全体は [`docs/design/candidates.md`](../design/candidates.md)。
+
+1. **試作（1 時間・スクラッチパッド・リポに入れない）**: `gh api` を 8 / 16 / 32 並列で 126 本叩いて壁時計時間を測る。ローカル側も同様。レート制限に当たるかも見る
+2. 実測を設計メモに書き、**3 秒を切らなければ設計を変える**
+3. F-1〜F-5 を決める。**F-3（`tokio` 等）は依存の ADR**（前例 ADR 0002）
+4. 作業指示を書いて実装リナへ（型は `docs/handoff/work-orders-2026-09-02/`）
+
+🔴 「並列化で 3 秒」は想定。**測るまで README に書かない**（QLT-009）。
+
+## `scopegrep` の保留（困った人が現れてから）
+
+- アンカー・複数ドキュメント・継続行（手元の corpus に 0 件）
+- TOML / JSON（同じ API で足す。設計メモの非目標を外す判断が先）
+- `docs/benchmarks/` に `grep` との比較（測ってから）
 
 ## 規約側の残り（急がない）
 
-- [ ] `CNF-005` 不変条件を持つ型の単独モジュール検査（型情報が要るか要検討）
-- [ ] `macro_rules!` の判断（RS-010 の planned 残り。現在 `macro_rules!` は 0 件）
+- `CNF-005` 不変条件を持つ型の単独モジュール検査（型情報が要るか要検討）
+- `macro_rules!` の判断（RS-010 の planned 残り。現在 0 件）
