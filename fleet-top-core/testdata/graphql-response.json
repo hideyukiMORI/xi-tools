@@ -1,0 +1,48 @@
+{
+  "data": {
+    "r0": {
+      "nameWithOwner": "example-org/alpha",
+      "defaultBranchRef": {
+        "name": "main",
+        "target": {
+          "committedDate": "2026-08-30T10:00:00Z",
+          "statusCheckRollup": { "state": "SUCCESS" }
+        }
+      },
+      "pullRequests": {
+        "totalCount": 1,
+        "nodes": [
+          {
+            "number": 12,
+            "title": "Add login \"flow\"",
+            "headRefName": "feat/login",
+            "updatedAt": "2026-09-01T09:30:00Z",
+            "isDraft": false
+          }
+        ]
+      },
+      "refs": {
+        "totalCount": 2,
+        "nodes": [
+          { "name": "main", "target": { "committedDate": "2026-08-30T10:00:00Z" } },
+          { "name": "feat/login", "target": { "committedDate": "2026-07-01T00:00:00Z" } }
+        ]
+      }
+    },
+    "r1": null,
+    "r2": {
+      "nameWithOwner": "example-org/gamma",
+      "defaultBranchRef": null,
+      "pullRequests": { "totalCount": 0, "nodes": [] },
+      "refs": { "totalCount": 0, "nodes": [] }
+    }
+  },
+  "errors": [
+    {
+      "type": "NOT_FOUND",
+      "path": ["r1"],
+      "locations": [{ "line": 1, "column": 80 }],
+      "message": "Could not resolve to a Repository with the name 'example-org/beta'."
+    }
+  ]
+}

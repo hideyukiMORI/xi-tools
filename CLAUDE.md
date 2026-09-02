@@ -41,16 +41,18 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 | workspace の足場・CI | ✅ 完了（2026-09-01・`c1bbe4a`） |
 | コーディング規約と機械強制 | ✅ 完了（2026-09-02・`docs/coding-rules.md` / `xtask`） |
 | `scopegrep` | ✅ **0.1.0 公開済み**（2026-09-02・crates.io / GitHub Release）。機能追加は施主判断で停止中 |
-| `fleet-top` | 🔲 **次**。未着手。最初の 1 手は試作で実測（`docs/design/fleet-top.md`） |
+| `fleet-top` | ✅ **動く**（2026-09-02・`feat/fleet-top-core`）。60 リポ 1.6〜1.8 s 実測。**版は 0.0.0・未公開**（出すかは施主判断） |
 | 候補一覧 | `docs/design/candidates.md`（作らないと決めたものも含む） |
 
-**動くもの:** `make check`（fmt / clippy / test / conformance / coverage / doc / build）と CI、`xtask`、
-`scopegrep`（`scopegrep-core` = no_std スキャナ＋検索、`scopegrep` = CLI）
-**動かないもの:** 部分集合の外の YAML（アンカー・複数行スカラー・複数ドキュメント等）は**意図的に**エラー
+**動くもの:** `make check`（fmt / clippy / test / conformance / coverage / deny / doc / build）と CI、`xtask`、
+`scopegrep`（`scopegrep-core` = no_std スキャナ＋検索、`scopegrep` = CLI）、
+`fleet-top`（`fleet-top-core` = no_std の JSON / porcelain v2 / GraphQL / 表、`fleet-top` = 並列サブプロセスと配線）
+**動かないもの:** 部分集合の外の YAML（アンカー・複数行スカラー・複数ドキュメント等）は**意図的に**エラー。
+`fleet-top` は `gh` 未ログイン・GitHub 以外の origin では GitHub 3 列が `?` / `n/a`（**行は消えない**）
 
 ### 次にやること
 
-正本は `docs/todo/current.md`。次は **`fleet-top`** で、**作る前に 1 時間の試作で並列化の効果を測る**。
+正本は `docs/todo/current.md`。`fleet-top` の PR をマージしたら、**出すかどうか（版・publish・Release matrix）は施主に確認**。
 `scopegrep` の部分集合を広げるなら、設計メモの表を先に更新してから実装する。
 
 ---
@@ -95,6 +97,10 @@ README の ```` ```console ```` ブロックの `$ scopegrep …` / `$ grep …`
 `scopegrep/tests/readme.rs` が `make check` のたびに実行して完全一致を検証する（2026-09-02〜）。
 **README の例を変えるときは、実行して貼る。** 手で書いた例は次の `make check` で落ちる。
 「動かない例が載っている public リポ」は第一目的を直接損なうので、このテストを消さない。
+
+⚠️ **`fleet-top` の例だけは例外**で、```` ```text ```` ブロックに実行日つきで置く（出力が GitHub と作業木の状態に依存する。ADR 0003）。
+`console` にすると照合テストが「知らないコマンド」で落ちる。表の整形は `fleet-top-core` の fixture テストが完全一致で見る。
+**この例外を `scopegrep` に逆流させない。**
 
 ### 3. 版を2箇所に書かない
 

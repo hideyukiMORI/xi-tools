@@ -1,0 +1,22 @@
+[package]
+name = "fleet-top"
+version = "0.0.0"
+description = "one screen for the state of many git repositories: branch, dirty, ahead/behind, open PRs, CI, stale branches"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+# 🔴 この道具の説明はリポジトリの README が正である（core と同じ扱い）。
+readme = "../README.md"
+keywords = ["git", "github", "cli", "status", "monorepo"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lints]
+workspace = true
+
+# 🔴 `path` と `version` の両方を書くのは、
+#    `cargo publish -p fleet-top` で単独 publish できる形を保つためである。
+#    版は `=` ではなく素の版で書く。固定するのは `Cargo.lock` の仕事であり、
+#    ここを `=` にすると単独 publish したときに下流の解決を縛る。
+[dependencies]
+fleet-top-core = { path = "../fleet-top-core", version = "0.0.0" }

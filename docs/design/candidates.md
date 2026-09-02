@@ -7,7 +7,7 @@
 | 候補 | 何を解くか | 状態 | 判断 |
 | --- | --- | --- | --- |
 | **`scopegrep`** | grep が返さない「ヒットが構造のどこに属するか」 | ✅ **0.1.0 公開済み**（2026-09-02） | 完了。機能追加は困った人が現れてから |
-| **`fleet-top`** | 数十リポの状態（枝・未コミット・ahead/behind・open PR・CI・古い枝）を 1 画面で | 🔲 **次**。設計メモ [`fleet-top.md`](fleet-top.md) | **作る前に 1 時間の試作で並列化の効果を測る** |
+| **`fleet-top`** | 数十リポの状態（枝・未コミット・ahead/behind・open PR・CI・古い枝）を 1 画面で | 🔨 **実装中**（2026-09-02〜）。設計メモ [`fleet-top.md`](fleet-top.md)・[ADR 0003](../adr/0003-fleet-top-fetches-github-via-chunked-graphql.md) | 試作の実測: GraphQL 3 リポ × 20 本並列で 60 リポ 1.4 s。境界（3 s）を越えたので作る |
 | `recall-flat` | 正規化済みベクトルの SIMD 総当たり。`nene-recall` の比較用ストア | ⏸ 待ち | **xi-tools には置かない**（ツールではなくシステムの構成要素。置き場は `nene-recall/rust/`）。Recall の Phase 1 の 7 番の直前まで 1 行も書かない |
 | `recall-bench` | Recall の p95 測定（測定側に GC が無いことが利点） | ✗ 消えた | recall レーンが Go で評価ハーネス（ADR 0013）を作った。要件が p95 で GC ノイズは統計に埋まる |
 | `board` TUI（ratatui） | 板の常駐 TUI を Python から置き換え | ✗ 保留 | 動いているものの書き直し。必要性が低い |

@@ -348,7 +348,8 @@ Rust では既定型への落下として現れるので、それを検出でき
 🔑 各ツールは `cargo publish -p <name>` で単独 publish できる形を保つ
 （`scopegrep` を将来独立させる余地を潰さないため）。
 
-- 機械強制: **planned**（現在ツールは `scopegrep` 1つで、共有クレートが存在しない）
+- 機械強制: **planned**（ツールは `scopegrep` と `fleet-top` の 2 つで、共有クレートは存在しない。
+  `fleet-top-core` の JSON パーサを `scopegrep` が要るようになったら、そのとき ADR を立てる——ADR 0003 決定 6）
 
 ### ARC-002 — 層はクレートで表す
 

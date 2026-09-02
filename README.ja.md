@@ -11,6 +11,7 @@
 | ツール | 何を解くか | 状態 |
 | --- | --- | --- |
 | [`scopegrep`](./scopegrep) | grep が返さない「**そのヒットが構造のどこに属するか**」を返す | 🟢 動く（YAML の部分集合） |
+| [`fleet-top`](./fleet-top) | **数十のリポジトリの状態を 1 画面で**——枝・未コミット・ahead/behind・open PR・CI・古い枝——「打たれる」時間のうちに | 🟢 動く（60 リポで 1.6〜1.8 秒・実測） |
 
 ---
 
@@ -193,6 +194,104 @@ $ scopegrep --json 'cancelled()' scopegrep-core/testdata/workflow-with-comment.y
   返すのはファイル階層であって、**ファイル内の構造ではありません**
 
 ---
+
+## fleet-top — 数十のリポジトリの状態を 1 画面で
+
+約 60 の git リポジトリを並べて作業しています。1 日に何度も同じことを知りたくなります。
+**全リポについて、今どの枝にいて、未コミットがあり、上流とどれだけずれ、open な PR があり、CI は緑で、古い枝は残っていないか。**
+それは毎回その場で書き捨てのシェルのループになり、そしてそのループは遅かった。
+
+2026-09-01 の実測: `gh api` は 1 本 0.67〜0.74 秒。リポごとに 3 本（設定・open PR・CI）を 42 リポで 126 本、
+直列で **約 84〜93 秒**。
+
+🔴 **84 秒かかるコマンドは打たれません。** 打たれないので、見えるはずのもの——期限切れ・4 日間だれも見なかった監査——が
+見えないままになる。この道具の目的は「速くて気持ちいい」ではなく、**打たれるコマンドと打たれないコマンドの境界を越えること**です。
+
+```text
+$ fleet-top ~/docker
+REPO                                  BRANCH                                  DIRTY  AHEAD/BEHIND  PR   CI    STALE
+NENE2                                 main                                    -      -             10   ok    -
+NENE2-examples-repo                   main                                    -      -             -    -     -
+NeNe                                  main                                    -      -             -    ok    ?
+_work                                 main                                    -      -             -    -     -
+eventlog                              docs/ft13-milestone                     -      (none)        n/a  n/a   n/a
+gtypist-lesson                        master                                  -      -             -    -     -
+hideyuki-mori-site                    main                                    -      -             -    -     -
+hideyukiMORI                          master                                  1      (none)        n/a  n/a   n/a
+hoplog                                main                                    -      -             -    -     -
+keyquest                              main                                    -      -             -    -     -
+knowledgelog                          main                                    -      (none)        n/a  n/a   n/a
+…（残り 49 行）
+fleet-top: NeNe: 枝が 100 本を超えている。STALE は数えていない
+fleet-top: 60 repos, 45 on GitHub, 1.6s
+```
+
+2026-09-02 に自分のディレクトリで取った実出力です（60 行のうち先頭 11 行。最後の 2 行は stderr）。
+上の `scopegrep` の例と違い、**このブロックはテストで照合していません**——出力がその時点の GitHub と作業木の状態に依存するからです。
+照合しているのは整形のほうで、`fleet-top-core` の fixture テストが表を 1 文字単位で見ています。
+
+表の読み方:
+
+- `-` はゼロ・該当なし。`n/a` は `origin` が GitHub でないリポ（聞いていない）。`?` は取れなかった値——**`?` には必ず stderr に理由が 1 行**つき、
+  行は消えません。失敗した行を消すのは、この道具が防ぎたい事故（たまたま見えた片方で判断する）と同じ形です
+- 終了コードは、全行が確定なら 0、`?` があれば 1（表は出ています）、使い方の誤りやディレクトリが読めなければ 2
+- `AHEAD/BEHIND` は手元にある追跡枝との差です。**`git fetch` は打ちません**。見るだけです
+
+### 使い方
+
+```
+fleet-top [DIR] [--stale-days N] [--no-github]
+```
+
+`DIR` の既定は `.`。その直下で `.git` を持つものだけがリポジトリで、再帰しません。`--stale-days`（既定 30）は
+GitHub 上の既定枝以外の枝を「古い」と呼ぶまでの日数。`--no-github` は `gh` を起動せず、GitHub の 3 列を `n/a` にします。
+
+GitHub は `gh api graphql` 経由で読むので、**`gh` が入っていてログイン済みであること**が前提です。認証を借りるだけで、token は扱いません。
+
+### インストール
+
+crates.io にはまだ出していません。リポジトリから:
+
+```bash
+cargo install --path fleet-top
+```
+
+### 作る前に測ったこと
+
+設計は想定ではなく 1 時間の試作で決めました（全表は [`docs/benchmarks/fleet-top.md`](./docs/benchmarks/fleet-top.md)）。
+
+| 形 | 60 リポ |
+| --- | --- |
+| REST 直列（21 本 0.74 s/本からの外挿） | 93 s |
+| REST 64 並列 | 2.38 s・rate limit 126 点 |
+| GraphQL **1 本**に全リポ | 42 リポで 8.87 s、60 リポで **HTTP 502** |
+| GraphQL **3 リポ × 1 本を全部並列** | **1.35〜1.49 s**・20 点 |
+| 道具そのもの（release ビルド・60 リポ中 45 が GitHub） | **1.6〜1.8 s** |
+
+予想していなかった結果は、**GraphQL は 1 本にまとめるほど遅くなる**ことでした。60 リポを 1 本にすると返ってきません。
+小さく割って一斉に投げるほうが、1 本にまとめるより、REST をどれだけ並列にするより速かった。core の `REPOS_PER_QUERY = 3` はこの表からそのまま来ています。
+
+### 実際に起きた失敗
+
+- **`gh api graphql` は、リクエスト内の 1 リポが失敗すると終了コード 1 を返し**、他のリポのデータは stdout に載ったままです。
+  終了コードで判断していたら、存在しない 1 リポのために 3 リポ分を捨てていました。道具は終了コードを見ずに stdout を読み、
+  `errors[].path` が指すリポだけを失敗にします
+- **設計メモの出力例が、設計メモ自身の規則と矛盾していました**（バイト順でない並び・「読めなかった」のに枝名がある行）。
+  実装側の完全一致 fixture テストが拾い、メモを直しました
+- **最初の実機実行で、理由の無い `?` が 1 つ出ました。** 枝が 100 本を超えるリポの古い枝の数は切り詰めで数えられず、
+  失敗ではないので stderr に何も出ていなかった。今は理由を出し、テストで押さえています
+
+### 設計上の判断
+
+却下した案とあわせて [`docs/design/fleet-top.md`](./docs/design/fleet-top.md) と
+[ADR 0003](./docs/adr/0003-fleet-top-fetches-github-via-chunked-graphql.md) に記録しています。
+
+- **両クレートとも依存 0。** GitHub は `gh` のサブプロセス（認証を借りる）、並列は `std::thread::scope` と上限つきのワーカープール、
+  GraphQL 応答の JSON は `fleet-top-core` に手書きした RFC 8259 パーサで読みます。`serde_json` は 5 crate 入り、`no_std` の中核が崩れます
+- **I/O が本体の道具でも中核は `no_std`。** `git` と `gh` の出力を文字列として、「今日」を値として受け取り、表を返す。
+  プロセスの起動・待ち合わせ・時計は bin に残す。中核の全部が fixture だけでテストできます
+- **TUI も `--watch` も作らない。** 1.6 秒で返るものを常駐させる理由が無い（`watch fleet-top` がある）。`ratatui` は数十 crate 入ります
+- **見るだけ。** `fetch` も `checkout` も `merge` もしません
 
 ## 開発
 
