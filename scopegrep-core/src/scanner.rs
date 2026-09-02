@@ -252,6 +252,8 @@ impl Scanner {
     ///
     /// 🔑 パスに直接書き込まない。`name:` は `if:` より後に書けるので、
     /// **読み終えてから当てはめる**（[`ScopePath::with_labels`]）。
+    ///
+    /// ラベルは**キーと同じ扱い**で、クォートを1枚外す（設計メモ D-1）。
     fn remember_label(&mut self, key: &str, value: &ScalarValue) {
         if key != "name" {
             return;
@@ -259,7 +261,8 @@ impl Scanner {
         let Some(pointer) = self.element_pointer() else {
             return;
         };
-        self.labels.insert(pointer, value.text().to_owned());
+        self.labels
+            .insert(pointer, scalar_value::unquote(value.text()).to_owned());
     }
 
     /// 今いるシーケンス要素の JSON Pointer。シーケンスの中でなければ `None`。
@@ -582,6 +585,19 @@ mod tests {
         let hit = only(source, "target");
         assert_eq!(hit.path().label(), Some("Later"));
         assert_eq!(format!("{}", hit.path()), "steps[0] \"Later\" .if");
+    }
+
+    /// ラベルはキーと同じく**クォートを1枚外す**（設計メモ D-1）。
+    /// 中の `''` エスケープは解かない。
+    #[test]
+    fn a_quoted_name_loses_one_layer_of_quotes() {
+        let source = "steps:\n  - name: \"Audit (fail)\"\n    if: target\n";
+        let hit = only(source, "target");
+        assert_eq!(hit.path().label(), Some("Audit (fail)"));
+        assert_eq!(format!("{}", hit.path()), "steps[0] \"Audit (fail)\" .if");
+
+        let single = "steps:\n  - name: 'A ''b'''\n    if: target\n";
+        assert_eq!(only(single, "target").path().label(), Some("A ''b''"));
     }
 
     // ── 読めないもの ────────────────────────────────────────────────────────

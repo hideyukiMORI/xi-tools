@@ -5,6 +5,9 @@ version = 4
 [[package]]
 name = "scopegrep"
 version = "0.0.0"
+dependencies = [
+ "scopegrep-core",
+]
 
 [[package]]
 name = "scopegrep-core"
