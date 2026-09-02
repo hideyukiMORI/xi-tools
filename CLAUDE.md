@@ -40,22 +40,16 @@ Claude Code / AI エージェント向け実行ガイド。このファイルだ
 | --- | --- |
 | workspace の足場・CI | ✅ 完了（2026-09-01・`c1bbe4a`） |
 | コーディング規約と機械強制 | ✅ 完了（2026-09-02・`docs/coding-rules.md` / `xtask`） |
-| `scopegrep` 設計 | 🔲 未決4件（D-1〜D-4） |
-| `scopegrep` 実装 | 🔲 未着手（`main.rs` は exit 2 で明示的に落ちる） |
+| `scopegrep` 設計 | ✅ 確定（2026-09-02・D-1〜D-4・`docs/design/scopegrep.md`） |
+| `scopegrep` 実装 | ✅ v1 が動く（2026-09-02・PR #2）。YAML の部分集合・外はエラー |
 
-**動くもの:** `make check`（fmt / clippy / test / conformance / doc / build）と CI、`xtask`（規約検査）
-**動かないもの:** `scopegrep` 本体（未実装）
+**動くもの:** `make check`（fmt / clippy / test / conformance / coverage / doc / build）と CI、`xtask`、
+`scopegrep`（`scopegrep-core` = no_std スキャナ＋検索、`scopegrep` = CLI）
+**動かないもの:** 部分集合の外の YAML（アンカー・複数行スカラー・複数ドキュメント等）は**意図的に**エラー
 
 ### 次にやること
 
-**D-1〜D-4 を決めてから書く。** 正本は `docs/design/scopegrep.md`。
-
-| | 論点 |
-| --- | --- |
-| D-1 | 所属の表現（JSON Pointer 風 / 人が読む形 / 両方） |
-| **D-2** | 🔴 **パーサ選定。ここが本体**（下の地雷1） |
-| D-3 | `name:` の無いステップの表示 |
-| D-4 | 出力形式（人向け1行 / 機械向け JSON） |
+正本は `docs/todo/current.md`。**部分集合を広げるなら、設計メモの表を先に更新してから実装する。**
 
 ---
 
@@ -93,11 +87,12 @@ Rust は `rustup` 導入（`~/.cargo/bin`）。`/etc/profile.d/rust.sh` と各 `
 **コメント内の一致を拾う偽陽性が2件残った**（2026-09-01 実測）。
 機構を変えずに実装を変えても解けない。
 
-### 2. README の出力例は「予定」であって実装ではない
+### 2. README の出力例は実行した出力であり、テストが照合する
 
-`--show-scope` の出力例は**まだ動かない**。実装が入ったら、**README を実装に合わせるか、
-実装を README に合わせるか、どちらかを明示的に選ぶ**こと。放置すると
-「動かない例が載っている public リポ」になり、第一目的を直接損なう。
+README の ```` ```console ```` ブロックの `$ scopegrep …` / `$ grep …` は
+`scopegrep/tests/readme.rs` が `make check` のたびに実行して完全一致を検証する（2026-09-02〜）。
+**README の例を変えるときは、実行して貼る。** 手で書いた例は次の `make check` で落ちる。
+「動かない例が載っている public リポ」は第一目的を直接損なうので、このテストを消さない。
 
 ### 3. 版を2箇所に書かない
 
@@ -120,6 +115,7 @@ Rust は `rustup` 導入（`~/.cargo/bin`）。`/etc/profile.d/rust.sh` と各 `
 | 2段目 | `deny` | `#[expect(<lint>, reason = "<規則 ID>: <理由>")]` **のみ** |
 
 ⚠️ `reason` の規則 ID は **`docs/coding-rules.md` に実在するものでなければ `xtask` が落とす**。
+⚠️ **カバレッジ下限（`Makefile` の `COVERAGE_MIN_LINES`）は上げる方向にしか動かさない。**
 規約から規則を消すと、それを引いていた抑制が CI で落ちる（＝規約とコードが片側だけ動けない）。
 
 ⚠️ **`planned` を `active` と書き換えない。** 未実装の強制を実装済みに見せるのは、
