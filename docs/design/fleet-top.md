@@ -176,9 +176,12 @@ fragment RepoFields on Repository { nameWithOwner defaultBranchRef { name target
 REPO   BRANCH      DIRTY  AHEAD/BEHIND  PR   CI    STALE
 alpha  main        -      -             -    ok    -
 beta   feat/login  3      +2/-1         1    FAIL  2
+delta  ?           ?      ?             ?    ?     ?
 gamma  (detached)  -      (none)        n/a  n/a   n/a
-delta  main        ?      ?             ?    ?     ?
 ```
+
+（`delta` はローカルも GitHub も読めなかった行。ローカルが読めなければ枝名も無いので、**行全体が `?`** になる。
+初版の例は `delta main ? …` と `gamma` の後に `delta` を置いていて、型ともバイト順とも矛盾していた——実装リナの指摘で 2026-09-02 に訂正）
 
 - 列は 2 空白区切り・左寄せ。列幅はその列の最大長（見出し含む・文字数）。最終列は詰めない。行末の空白は出さない
 - `REPO`: ディレクトリ名。バイト順

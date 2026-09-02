@@ -31,18 +31,46 @@
 //!
 //! # 今あるもの
 //!
-//! `git status --porcelain=v2` の読み取り・GraphQL の組み立てと応答の解釈・表の整形は
-//! まだ無い。今あるのは JSON（[`json_parser::parse_json`]）・日付（[`day::Day`]）・
-//! remote URL（[`github_slug::parse_remote_url`]）の 3 つである。
+//! | 入力（bin が集めてくる文字列） | 読む場所 | 出る値 |
+//! | --- | --- | --- |
+//! | GraphQL の応答（JSON） | [`json_parser::parse_json`] | [`json_value::JsonValue`] |
+//! | `git status --porcelain=v2 --branch` | [`local_state::parse_porcelain`] | [`local_state::LocalState`] |
+//! | `git remote get-url origin` | [`github_slug::parse_remote_url`] | [`github_slug::GithubSlug`] |
+//! | GitHub の応答 | [`graphql::parse_response`] | [`remote_state::RemoteState`] |
+//!
+//! 送る側は [`graphql::build_query`]（[`graphql::REPOS_PER_QUERY`] リポジトリずつ）、
+//! 出す側は [`table::render`]（[`row::Row`] を名前順に並べて表にする）である。
+//! 「今日」は [`day::Day`] にして [`freshness::Freshness`] で渡す。
+//!
+//! bin（サブプロセスの起動・並列・時刻・引数・出力）はまだ無い。
 
 #![no_std]
 
 extern crate alloc;
 
+pub mod ci_state;
 pub mod day;
+pub mod freshness;
 pub mod github_slug;
+pub mod graphql;
+pub mod head;
 pub mod json_error;
 pub mod json_error_kind;
 pub mod json_number;
 pub mod json_parser;
 pub mod json_value;
+pub mod local_report;
+pub mod local_state;
+pub mod porcelain_error;
+pub mod porcelain_error_kind;
+pub mod remote_error;
+pub mod remote_report;
+pub mod remote_state;
+pub mod row;
+pub mod stale_count;
+pub mod table;
+
+mod branch_list;
+mod divergence;
+mod porcelain_line;
+mod remote_branch;
