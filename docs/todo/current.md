@@ -22,7 +22,7 @@
 
 ### 合否を決めるファイル
 
-[`scopegrep/testdata/workflow-with-comment.yml`](../../scopegrep/testdata/workflow-with-comment.yml)（手書きの架空データ）。
+[`scopegrep-core/testdata/workflow-with-comment.yml`](../../scopegrep-core/testdata/workflow-with-comment.yml)（手書きの架空データ）。
 
 同じ `cancelled()` が3つ入っている。**候補パーサはこれを別物として区別できなければならない。**
 

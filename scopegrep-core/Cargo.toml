@@ -1,0 +1,20 @@
+[package]
+name = "scopegrep-core"
+version = "0.0.0"
+description = "YAML の部分集合を読んで「その値が構造のどこに属するか」を返す中核（no_std・依存 0）"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+# 🔴 core 自身の README は持たない。道具の説明はリポジトリの README が正である。
+#    それでも `readme` を書くのは clippy::cargo_common_metadata（deny）が
+#    publish 可能なクレートに要求するからで、ゲートを緩める代わりの措置である。
+readme = "../README.md"
+keywords = ["yaml", "parser", "search", "no-std", "structure"]
+categories = ["parser-implementations", "no-std", "text-processing"]
+
+[lints]
+workspace = true
+
+# 🔴 依存ゼロを保つ（ARC-004）。この crate は alloc しか使わない。
+[dependencies]
