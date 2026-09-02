@@ -18,16 +18,15 @@
 
 ---
 
-## 次の1手: 0.1.0 を出す（PR #5 → publish → タグ）
+## 0.1.0 は出た（2026-09-02）
 
-施主の判断（2026-09-02）: **機能追加は止める。英語 README。配れる形にする。** 他は保留。
+| | |
+| --- | --- |
+| crates.io | [`scopegrep`](https://crates.io/crates/scopegrep) / [`scopegrep-core`](https://crates.io/crates/scopegrep-core) 0.1.0 |
+| GitHub Release | [v0.1.0](https://github.com/hideyukiMORI/xi-tools/releases/tag/v0.1.0) — Linux x86_64 / macOS arm64 / Windows x86_64（regex 入り・sha256 付き） |
+| 手元 | `cargo install scopegrep --features regex` で crates.io 版に入れ替え済み |
 
-1. PR #5（`release/0.1.0`）を施主がレビューしてマージ
-2. 設計リナが `cargo publish -p scopegrep-core` → 数分待つ → `cargo publish -p scopegrep`（順番固定・`docs/release.md`）
-3. `git tag v0.1.0 && git push origin v0.1.0` → Release workflow が 3 OS の binary を上げる
-4. `cargo install scopegrep --features regex` で手元を crates.io 版に入れ替える
-
-🔴 README の Install 節（`cargo install scopegrep`）は **publish が終わるまで真でない**。マージと publish は同日に行う。
+**次の1手は無い。** 機能追加は施主判断で停止中。困った人（施主自身を含む）が現れたら、それを実測にして再開する。
 
 ## 0.1.0 の後の候補（**保留**・施主判断 2026-09-02。困った人が現れてから）
 
