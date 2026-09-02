@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `fleet-top [DIR] [--stale-days N] [--no-github]` — prints one row per git repository directly
+  under `DIR`: current branch, number of dirty entries, ahead/behind against the tracking branch,
+  open PRs, CI state of the default branch head, and the number of stale branches on GitHub.
+  Exit codes: 0 = every row complete, 1 = some value could not be determined (`?`, with one
+  reason per line on stderr; the row is kept), 2 = usage error or unreadable directory
+- GitHub is read through `gh api graphql`, 3 repositories per request, all requests in
+  parallel. The exit code of `gh` is ignored; stdout is read and only the repositories named in
+  `errors[].path` are failed. Nothing is fetched; the tool is read-only
+- `fleet-top-core` — the `no_std`, zero-dependency core: an RFC 8259 JSON parser,
+  `git status --porcelain=v2 --branch` parsing, the GraphQL query and response, day arithmetic,
+  and the table renderer. Neither crate has a dependency
+- Measurements that decided the design are in `docs/benchmarks/fleet-top.md`
+
 ## [0.1.0] — 2026-09-02
 
 First release of `scopegrep` (the command) and `scopegrep-core` (its `no_std` core).

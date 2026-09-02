@@ -11,6 +11,7 @@ tied to that environment. They are public anyway **to keep the problem statement
 | Tool | What it solves | State |
 | --- | --- | --- |
 | [`scopegrep`](./scopegrep) | Returns what `grep` does not: **where in the structure a hit belongs** | 🟢 Works (a subset of YAML) |
+| [`fleet-top`](./fleet-top) | **The state of dozens of repositories on one screen** — branch, dirty, ahead/behind, open PRs, CI, stale branches — in the time a command still gets run | 🟢 Works (60 repositories in 1.6–1.8 s, measured) |
 
 ---
 
@@ -210,6 +211,126 @@ $ scopegrep --json 'cancelled()' scopegrep-core/testdata/workflow-with-comment.y
   What it returns is the file hierarchy, **not the structure inside a file**
 
 ---
+
+## fleet-top — the state of dozens of repositories on one screen
+
+I work across about 60 git repositories side by side. Several times a day the question is the
+same: **for every one of them, which branch am I on, is there anything uncommitted, how far is
+it from its upstream, are there open PRs, is CI green, are there stale branches?**
+Every time, that turned into a throwaway shell loop — and the loop was slow.
+
+Measured on 2026-09-01: one `gh api` call takes 0.67–0.74 s. Three calls per repository
+(settings, open PRs, CI) over 42 repositories is 126 calls, or **about 84–93 seconds** in series.
+
+🔴 **A command that takes 84 seconds does not get run.** And because it does not get run, the
+things it would have shown — an expired deadline, an audit that nobody looked at for four
+days — stay unseen. The goal of this tool is not "fast and pleasant"; it is **to cross the line
+between a command that gets run and one that does not**.
+
+```text
+$ fleet-top ~/docker
+REPO                                  BRANCH                                  DIRTY  AHEAD/BEHIND  PR   CI    STALE
+NENE2                                 main                                    -      -             10   ok    -
+NENE2-examples-repo                   main                                    -      -             -    -     -
+NeNe                                  main                                    -      -             -    ok    ?
+_work                                 main                                    -      -             -    -     -
+eventlog                              docs/ft13-milestone                     -      (none)        n/a  n/a   n/a
+gtypist-lesson                        master                                  -      -             -    -     -
+hideyuki-mori-site                    main                                    -      -             -    -     -
+hideyukiMORI                          master                                  1      (none)        n/a  n/a   n/a
+hoplog                                main                                    -      -             -    -     -
+keyquest                              main                                    -      -             -    -     -
+knowledgelog                          main                                    -      (none)        n/a  n/a   n/a
+…（49 more rows）
+fleet-top: NeNe: 枝が 100 本を超えている。STALE は数えていない
+fleet-top: 60 repos, 45 on GitHub, 1.6s
+```
+
+Captured on 2026-09-02 against my own directory (60 rows, first 11 shown; the last two lines
+are stderr). Unlike the `scopegrep` examples above, **this block is not verified by a test** —
+the output depends on the state of GitHub and of my working trees at that moment. What is
+verified is the formatting: the fixture tests in `fleet-top-core` check the table character
+by character.
+
+Reading the table:
+
+- `-` is zero or nothing to report. `n/a` is a repository whose `origin` is not GitHub (it was
+  not asked). `?` is a value that could not be determined — **each `?` comes with one line on
+  stderr saying why**, and the row is kept. Deleting a row that failed is the same shape as the
+  accident this tool was written to prevent (judging from the half you happened to see)
+- The exit code is 0 when every row is complete, 1 when any `?` is present (the table was still
+  printed), 2 for a usage error or an unreadable directory
+- `AHEAD/BEHIND` is the difference to the tracking branch as it is on disk. The tool **never
+  runs `git fetch`** — it only looks
+
+### Usage
+
+```
+fleet-top [DIR] [--stale-days N] [--no-github]
+```
+
+`DIR` defaults to `.`. Only its direct children that contain a `.git` are repositories; there is
+no recursion. `--stale-days` (default 30) is the age after which a non-default branch on GitHub
+counts as stale. `--no-github` never starts `gh` and prints `n/a` in the three GitHub columns.
+
+GitHub is read through `gh api graphql`, so **`gh` must be installed and logged in**; the tool
+borrows its authentication and handles no token of its own.
+
+### Install
+
+Not on crates.io yet. From the repository:
+
+```bash
+cargo install --path fleet-top
+```
+
+### What was measured before writing it
+
+The design was decided by a one-hour prototype, not by expectation
+(the full table is in [`docs/benchmarks/fleet-top.md`](./docs/benchmarks/fleet-top.md)).
+
+| Approach | 60 repositories |
+| --- | --- |
+| REST, in series (extrapolated from 21 calls at 0.74 s) | 93 s |
+| REST, 64 calls in parallel | 2.38 s, 126 rate-limit points |
+| **One** GraphQL request carrying all repositories | 8.87 s for 42 repositories; **HTTP 502** for 60 |
+| GraphQL, **3 repositories per request, all requests in parallel** | **1.35–1.49 s**, 20 points |
+| The tool itself, release build, 45 of 60 repositories on GitHub | **1.6–1.8 s** |
+
+The result I did not expect: **GraphQL gets slower the more repositories you put in one
+request**, and 60 in one request does not come back at all. Splitting into small requests and
+sending them all at once was faster than either the single request or REST at any parallelism.
+`REPOS_PER_QUERY = 3` in the core comes straight from that table.
+
+### Failures that actually happened
+
+- **`gh api graphql` exits 1 as soon as one repository in the request fails**, with the other
+  repositories' data still on stdout. Judging by exit code would have dropped three
+  repositories for one that was missing. The tool reads stdout regardless of the exit code and
+  fails only the repository named in `errors[].path`
+- **The design note's own example contradicted its own rules** (rows out of byte order; a row
+  that was "unreadable" yet had a branch name). The implementation's exact-match fixture test
+  caught it, and the note was corrected
+- **The first real run printed a `?` with no reason.** A repository with more than 100
+  branches has its stale count truncated — that is not a failure, so nothing was written to
+  stderr, but it was still a `?`. Now it says so, and a test covers it
+
+### Design decisions
+
+Recorded with the rejected alternatives in [`docs/design/fleet-top.md`](./docs/design/fleet-top.md)
+and [ADR 0003](./docs/adr/0003-fleet-top-fetches-github-via-chunked-graphql.md).
+
+- **Zero dependencies, in both crates.** GitHub is read through the `gh` subprocess (its
+  authentication is borrowed), concurrency is `std::thread::scope` with a bounded worker pool,
+  and the JSON of the GraphQL response is read by a hand-written RFC 8259 parser in
+  `fleet-top-core`. `serde_json` would have brought 5 crates and broken the `no_std` core
+- **The core is `no_std` even though the tool is all I/O.** It receives the output of `git`
+  and `gh` as strings and "today" as a value, and returns the table; starting processes,
+  waiting for them and reading the clock stay in the binary. Everything the core does is
+  tested from fixtures alone
+- **No TUI, no `--watch`.** A tool that returns in 1.6 s has no reason to stay resident
+  (`watch fleet-top` exists). Adding `ratatui` would have added dozens of crates
+- **Read-only.** No `fetch`, no `checkout`, no `merge`. It only looks
 
 ## Development
 
